@@ -654,4 +654,150 @@ mod tests {
         let result = resolve_working_dir_for_project("/nonexistent/path/xyz", "main");
         assert!(result.is_err());
     }
+
+    // --- find_worktree_for_branch ---
+
+    #[test]
+    fn find_worktree_no_match_returns_none() {
+        let (_dir, path) = init_temp_repo();
+        let result = find_worktree_for_branch(&path, "feat/nonexistent").unwrap();
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn find_worktree_with_match_returns_some() {
+        let (_dir, path) = init_temp_repo();
+
+        Command::new("git")
+            .args(["branch", "feat/find-test"])
+            .current_dir(&path)
+            .output()
+            .expect("create branch");
+
+        let wt_dir = tempfile::tempdir().expect("wt temp dir");
+        let wt_path = wt_dir.path().to_str().unwrap().to_string();
+        std::fs::remove_dir(&wt_path).ok();
+
+        Command::new("git")
+            .args(["worktree", "add", &wt_path, "feat/find-test"])
+            .current_dir(&path)
+            .output()
+            .expect("git worktree add");
+
+        let result = find_worktree_for_branch(&path, "feat/find-test").unwrap();
+        assert!(result.is_some(), "should find the worktree");
+
+        let canon = |p: &str| std::fs::canonicalize(p).unwrap_or_else(|_| std::path::PathBuf::from(p));
+        assert_eq!(canon(&result.unwrap()), canon(&wt_path));
+    }
+
+    #[test]
+    fn find_worktree_stale_dir_returns_none() {
+        let (_dir, path) = init_temp_repo();
+
+        Command::new("git")
+            .args(["branch", "feat/stale-find"])
+            .current_dir(&path)
+            .output()
+            .expect("create branch");
+
+        let wt_dir = tempfile::tempdir().expect("wt temp dir");
+        let wt_path = wt_dir.path().to_str().unwrap().to_string();
+        std::fs::remove_dir(&wt_path).ok();
+
+        Command::new("git")
+            .args(["worktree", "add", &wt_path, "feat/stale-find"])
+            .current_dir(&path)
+            .output()
+            .expect("git worktree add");
+
+        std::fs::remove_dir_all(&wt_path).expect("remove wt dir");
+
+        let result = find_worktree_for_branch(&path, "feat/stale-find").unwrap();
+        assert_eq!(result, None, "stale worktree should return None");
+    }
+
+    #[test]
+    fn find_worktree_invalid_path_returns_err() {
+        let result = find_worktree_for_branch("/nonexistent/path/xyz", "main");
+        assert!(result.is_err());
+    }
+
+    // --- resolve_working_dir_strict ---
+
+    #[test]
+    fn strict_resolve_returns_err_when_no_worktree() {
+        let (_dir, path) = init_temp_repo();
+        let result = resolve_working_dir_strict(&path, "feat/no-such-branch");
+        assert!(result.is_err(), "strict mode should return Err when no worktree found");
+        let err_msg = result.unwrap_err();
+        assert!(
+            err_msg.contains("No worktree found"),
+            "error message should indicate no worktree: {}",
+            err_msg
+        );
+    }
+
+    #[test]
+    fn strict_resolve_returns_ok_when_worktree_exists() {
+        let (_dir, path) = init_temp_repo();
+
+        Command::new("git")
+            .args(["branch", "feat/strict-test"])
+            .current_dir(&path)
+            .output()
+            .expect("create branch");
+
+        let wt_dir = tempfile::tempdir().expect("wt temp dir");
+        let wt_path = wt_dir.path().to_str().unwrap().to_string();
+        std::fs::remove_dir(&wt_path).ok();
+
+        Command::new("git")
+            .args(["worktree", "add", &wt_path, "feat/strict-test"])
+            .current_dir(&path)
+            .output()
+            .expect("git worktree add");
+
+        let result = resolve_working_dir_strict(&path, "feat/strict-test").unwrap();
+        let canon = |p: &str| std::fs::canonicalize(p).unwrap_or_else(|_| std::path::PathBuf::from(p));
+        assert_eq!(canon(&result), canon(&wt_path));
+    }
+
+    #[test]
+    fn strict_resolve_returns_err_on_stale_worktree() {
+        let (_dir, path) = init_temp_repo();
+
+        Command::new("git")
+            .args(["branch", "feat/strict-stale"])
+            .current_dir(&path)
+            .output()
+            .expect("create branch");
+
+        let wt_dir = tempfile::tempdir().expect("wt temp dir");
+        let wt_path = wt_dir.path().to_str().unwrap().to_string();
+        std::fs::remove_dir(&wt_path).ok();
+
+        Command::new("git")
+            .args(["worktree", "add", &wt_path, "feat/strict-stale"])
+            .current_dir(&path)
+            .output()
+            .expect("git worktree add");
+
+        std::fs::remove_dir_all(&wt_path).expect("remove wt dir");
+
+        let result = resolve_working_dir_strict(&path, "feat/strict-stale");
+        assert!(result.is_err(), "strict mode should return Err for stale worktree");
+    }
+
+    #[test]
+    fn strict_vs_lenient_behavior_diverges_on_missing_worktree() {
+        let (_dir, path) = init_temp_repo();
+        let branch = "feat/divergence-test";
+
+        let lenient = resolve_working_dir_for_project(&path, branch).unwrap();
+        assert_eq!(lenient, path, "lenient should fall back to project path");
+
+        let strict = resolve_working_dir_strict(&path, branch);
+        assert!(strict.is_err(), "strict should return Err for same scenario");
+    }
 }
