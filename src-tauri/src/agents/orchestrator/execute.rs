@@ -659,16 +659,34 @@ impl WorkflowOrchestrator {
     /// Run the add-and-commit stage for each workspace project that has changes.
     /// The primary project runs first (in the orchestrator's CWD), then each
     /// secondary project runs in its own worktree directory.
+    ///
+    /// Uses `resolve_working_dir_strict` to resolve worktree paths so that a
+    /// missing worktree is skipped rather than silently falling back to the
+    /// project's main checkout (which would commit to the wrong branch).
     async fn run_workspace_commit_stage(
         &self,
         cmd: &str,
         base_prompt: &str,
     ) -> Result<(), String> {
-        let dirs = match crate::commands::next_steps::get_ticket_working_dirs(
-            &self.db,
-            &self.ticket.id,
-        ) {
-            Ok(dirs) if dirs.len() > 1 => dirs,
+        let workspace_id = match self.ticket.workspace_id.as_ref() {
+            Some(id) => id,
+            None => {
+                let prompt = self.append_workspace_context_to_prompt(base_prompt);
+                self.run_stage(cmd, &prompt).await?;
+                return Ok(());
+            }
+        };
+
+        let projects = self.db.get_workspace_projects(workspace_id)
+            .map_err(|e| format!("Failed to get workspace projects: {}", e))?;
+
+        let current_branch = self.db.get_ticket(&self.ticket.id)
+            .ok()
+            .and_then(|t| t.branch_name)
+            .or_else(|| self.worktree_branch.clone());
+
+        let branch = match current_branch.as_deref() {
+            Some(b) if !b.is_empty() => b,
             _ => {
                 let prompt = self.append_workspace_context_to_prompt(base_prompt);
                 self.run_stage(cmd, &prompt).await?;
@@ -676,15 +694,30 @@ impl WorkflowOrchestrator {
             }
         };
 
+        let mut secondary_dirs: Vec<(String, String)> = Vec::new();
         let primary = self.repo_path.to_string_lossy().to_string();
+
+        for p in &projects {
+            let worktree_path = match crate::commands::next_steps::resolve_working_dir_strict(&p.path, branch) {
+                Ok(resolved) => resolved,
+                Err(_) => {
+                    tracing::warn!(
+                        "No worktree found for project '{}', skipping commit stage \
+                         to avoid operating on main checkout",
+                        p.name
+                    );
+                    continue;
+                }
+            };
+            if worktree_path != primary {
+                secondary_dirs.push((p.name.clone(), worktree_path));
+            }
+        }
 
         let prompt = self.append_workspace_context_to_prompt(base_prompt);
         self.run_stage(cmd, &prompt).await?;
 
-        for (_, project_name, working_dir, _) in &dirs {
-            if *working_dir == primary {
-                continue;
-            }
+        for (project_name, working_dir) in &secondary_dirs {
 
             if !crate::commands::next_steps::has_uncommitted_changes(working_dir) {
                 continue;

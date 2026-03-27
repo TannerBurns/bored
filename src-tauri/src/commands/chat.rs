@@ -168,17 +168,9 @@ pub async fn send_chat_message(
         let mut ws_folders: Vec<(PathBuf, String)> = Vec::new();
         for p in &projects {
             let resolved = if let Some(ref branch) = branch_name {
-                match crate::commands::next_steps::resolve_working_dir_strict(&p.path, branch) {
-                    Ok(r) => PathBuf::from(r),
-                    Err(_) => {
-                        tracing::warn!(
-                            "No worktree found for project '{}', excluding from chat workspace \
-                             to prevent operating on main checkout",
-                            p.name
-                        );
-                        continue;
-                    }
-                }
+                crate::commands::next_steps::resolve_working_dir_for_project(&p.path, branch)
+                    .map(PathBuf::from)
+                    .unwrap_or_else(|_| PathBuf::from(&p.path))
             } else {
                 PathBuf::from(&p.path)
             };
