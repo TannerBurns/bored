@@ -99,12 +99,14 @@ Do NOT start implementing any code changes. Just rename the branch.
 
         let _rename_result = self.run_stage("branch", &rename_prompt).await?;
 
-        // Rename branches in all secondary workspace worktrees so every
-        // project in the workspace shares the same branch name.
-        self.rename_workspace_secondary_branches(temp_branch_name, &new_branch_name);
-
-        // Now that the git rename succeeded, store the NEW branch name on ticket
+        // Store the new branch name now — the primary is already renamed, so
+        // the ticket must reference the new name regardless of secondary outcomes.
         self.store_branch_name(&new_branch_name);
+
+        // Rename branches in all secondary workspace worktrees. If any fail,
+        // halt the workflow so the mismatch is surfaced rather than silently
+        // proceeding with a broken state (secondary on old branch, ticket on new).
+        self.rename_workspace_secondary_branches(temp_branch_name, &new_branch_name)?;
 
         Ok(())
     }
@@ -239,12 +241,21 @@ Do NOT start implementing any code changes. Just create the branch.
     /// commands. The primary worktree's branch is already renamed by the agent;
     /// this ensures secondary projects also have the new branch name so that
     /// `get_ticket_working_dirs` can find all worktrees by branch.
-    fn rename_workspace_secondary_branches(&self, old_branch: &str, new_branch: &str) {
+    ///
+    /// Returns `Err` if any rename fails. Failing silently would leave the
+    /// ticket's stored branch name out of sync with the secondary worktree,
+    /// causing downstream stages to operate on the wrong directory.
+    fn rename_workspace_secondary_branches(
+        &self,
+        old_branch: &str,
+        new_branch: &str,
+    ) -> Result<(), String> {
         if self.workspace_paths.is_empty() {
-            return;
+            return Ok(());
         }
 
         let primary = self.repo_path.to_string_lossy().to_string();
+        let mut failed: Vec<String> = Vec::new();
 
         for ws_path in &self.workspace_paths {
             let ws_path_str = ws_path.to_string_lossy().to_string();
@@ -253,10 +264,7 @@ Do NOT start implementing any code changes. Just create the branch.
             }
 
             if !ws_path.exists() {
-                tracing::warn!(
-                    "Workspace path {} does not exist, skipping branch rename",
-                    ws_path_str
-                );
+                failed.push(format!("{} (directory missing)", ws_path_str));
                 continue;
             }
 
@@ -292,14 +300,26 @@ Do NOT start implementing any code changes. Just create the branch.
                         "Failed to rename branch in workspace worktree {}: {}",
                         ws_path_str, stderr.trim()
                     );
+                    failed.push(format!("{} ({})", ws_path_str, stderr.trim()));
                 }
                 Err(e) => {
                     tracing::error!(
                         "Failed to run git branch -m in workspace worktree {}: {}",
                         ws_path_str, e
                     );
+                    failed.push(format!("{} ({})", ws_path_str, e));
                 }
             }
+        }
+
+        if failed.is_empty() {
+            Ok(())
+        } else {
+            Err(format!(
+                "Failed to rename branch in {} workspace worktree(s): {}",
+                failed.len(),
+                failed.join("; ")
+            ))
         }
     }
 
