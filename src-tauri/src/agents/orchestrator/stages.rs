@@ -580,7 +580,7 @@ impl WorkflowOrchestrator {
                 .and_then(|b| {
                     crate::commands::next_steps::resolve_working_dir_strict(&project.path, b).ok()
                 })
-                .unwrap_or_else(|| self.repo_path.to_string_lossy().to_string());
+                .unwrap_or_else(|| project.path.clone());
             dir_pairs.push((project.name.clone(), worktree_dir));
         }
 

@@ -164,31 +164,34 @@ pub async fn send_chat_message(
             db.get_ticket(tid).ok().and_then(|t| t.branch_name)
         });
 
-        let ws_paths: Vec<PathBuf> = projects.iter().filter_map(|p| {
-            if let Some(ref branch) = branch_name {
+        let mut ws_paths: Vec<PathBuf> = Vec::new();
+        let mut ws_folders: Vec<(PathBuf, String)> = Vec::new();
+        for p in &projects {
+            let resolved = if let Some(ref branch) = branch_name {
                 match crate::commands::next_steps::resolve_working_dir_strict(&p.path, branch) {
-                    Ok(resolved) => Some(PathBuf::from(resolved)),
+                    Ok(r) => PathBuf::from(r),
                     Err(_) => {
                         tracing::warn!(
                             "No worktree found for project '{}', excluding from chat workspace \
                              to prevent operating on main checkout",
                             p.name
                         );
-                        None
+                        continue;
                     }
                 }
             } else {
-                Some(PathBuf::from(&p.path))
-            }
-        }).collect();
+                PathBuf::from(&p.path)
+            };
+            ws_paths.push(resolved.clone());
+            ws_folders.push((resolved, p.name.clone()));
+        }
 
         let ws_dir = std::env::temp_dir().join("bored").join("chat-workspaces");
         std::fs::create_dir_all(&ws_dir)
             .map_err(|e| format!("Failed to create workspace directory: {}", e))?;
         let ws_file = ws_dir.join(format!("{}.code-workspace", chat_id));
-        let folders: Vec<serde_json::Value> = ws_paths.iter()
-            .zip(projects.iter())
-            .map(|(path, proj)| serde_json::json!({ "path": path.to_string_lossy(), "name": proj.name }))
+        let folders: Vec<serde_json::Value> = ws_folders.iter()
+            .map(|(path, name)| serde_json::json!({ "path": path.to_string_lossy(), "name": name }))
             .collect();
         let ws_content = serde_json::json!({ "folders": folders });
         let ws_json = serde_json::to_string_pretty(&ws_content)
