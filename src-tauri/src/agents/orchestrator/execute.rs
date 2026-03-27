@@ -614,9 +614,6 @@ impl WorkflowOrchestrator {
         let base_prompt = generate_command_prompt(cmd, custom_dir.as_deref());
 
         if self.ticket.workspace_id.is_some() {
-            // For workspace tickets, run add-and-commit for each project that
-            // has changes, rather than only committing in the primary CWD and
-            // leaving secondary projects with a basic auto-commit.
             self.run_workspace_commit_stage(cmd, &base_prompt).await?;
         } else {
             let prompt = self.append_workspace_context_to_prompt(&base_prompt);
@@ -640,7 +637,6 @@ impl WorkflowOrchestrator {
         ) {
             Ok(dirs) if dirs.len() > 1 => dirs,
             _ => {
-                // Fallback: single project or resolution failed, commit in primary
                 let prompt = self.append_workspace_context_to_prompt(base_prompt);
                 self.run_stage(cmd, &prompt).await?;
                 return Ok(());
@@ -649,21 +645,15 @@ impl WorkflowOrchestrator {
 
         let primary = self.repo_path.to_string_lossy().to_string();
 
-        // Run add-and-commit in the primary project first
         let prompt = self.append_workspace_context_to_prompt(base_prompt);
         self.run_stage(cmd, &prompt).await?;
 
-        // Run add-and-commit for each secondary project that has uncommitted changes
         for (_, project_name, working_dir, _) in &dirs {
             if *working_dir == primary {
                 continue;
             }
 
             if !crate::commands::next_steps::has_uncommitted_changes(working_dir) {
-                tracing::info!(
-                    "Workspace project '{}' has no uncommitted changes, skipping commit",
-                    project_name
-                );
                 continue;
             }
 
@@ -678,19 +668,13 @@ impl WorkflowOrchestrator {
 
             let dir_path = std::path::PathBuf::from(working_dir);
             match self.run_stage_in_dir(cmd, base_prompt, &dir_path).await {
-                Ok(_) => {
-                    tracing::info!(
-                        "Successfully committed changes in workspace project '{}'",
-                        project_name
-                    );
-                }
+                Ok(_) => {}
                 Err(e) => {
                     tracing::error!(
                         "Agent add-and-commit failed for workspace project '{}', \
                          falling back to basic commit: {}",
                         project_name, e
                     );
-                    // Fallback: do a basic commit so work isn't lost
                     let commit_msg = format!("chore: {}", self.ticket.title);
                     if let Err(commit_err) =
                         crate::commands::next_steps::commit_all_changes(working_dir, &commit_msg)

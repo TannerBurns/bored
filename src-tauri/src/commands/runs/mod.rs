@@ -273,10 +273,8 @@ pub async fn start_agent_run(
     // We pass the Arc reference so the orchestrator can lock and read it.
     let shared_workflow_settings = workflow_settings_state.shared();
 
-    // For workspace tickets, create worktrees for ALL secondary projects (not
-    // just the primary). This ensures every project has an isolated worktree
-    // with the same branch name. Previously only the primary project got a
-    // worktree, and secondary projects fell back to their main checkout.
+    // Create worktrees for all secondary workspace projects so every project
+    // has an isolated worktree with the same branch name as the primary.
     let (workspace_file, workspace_paths, workspace_secondary_worktrees) =
         if let Some(ref workspace_id) = ticket.workspace_id {
             let projects = db_clone

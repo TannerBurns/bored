@@ -220,10 +220,8 @@ pub async fn create_worktrees_for_workspace(
         }
     };
 
-    // Generate a single shared branch name for ALL projects in the workspace.
-    // Previously each project got a different branch derived from a per-project
-    // run_id suffix, causing only the primary project's branch to be tracked
-    // while secondary projects' work was lost.
+    // All projects in the workspace must share a single branch name so that
+    // get_ticket_working_dirs can find all worktrees by the ticket's branch.
     let shared_branch_name = if ticket.branch_name.is_none() {
         Some(format!(
             "agent-work/{}/{}",
@@ -236,8 +234,7 @@ pub async fn create_worktrees_for_workspace(
 
     for (idx, project) in projects.iter().enumerate() {
         let repo_path = PathBuf::from(&project.path);
-        // Use a per-project run_id suffix only for the worktree directory path,
-        // NOT for branch naming. The branch name is shared across all projects.
+        // Per-project suffix only for worktree directory path, not branch name.
         let project_run_id = if projects.len() > 1 {
             format!("{}-{}", run_id, idx)
         } else {

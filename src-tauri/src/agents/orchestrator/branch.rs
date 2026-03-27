@@ -272,11 +272,6 @@ Do NOT start implementing any code changes. Just create the branch.
 
             match rename_result {
                 Ok(output) if output.status.success() => {
-                    tracing::info!(
-                        "Successfully renamed branch in workspace worktree {}",
-                        ws_path_str
-                    );
-                    // Push the renamed branch to origin
                     let push_result = std::process::Command::new("git")
                         .args(["push", "-u", "origin", new_branch])
                         .current_dir(ws_path)
