@@ -332,7 +332,8 @@ pub fn extract_session_id_from_stream_json(stream_output: &str) -> Option<String
 
         if let Some(sid) = json.get("session_id").and_then(|v| v.as_str()) {
             let msg_type = json.get("type").and_then(|t| t.as_str()).unwrap_or("");
-            if msg_type == "system" {
+            let subtype = json.get("subtype").and_then(|s| s.as_str()).unwrap_or("");
+            if msg_type == "system" && subtype == "init" {
                 return Some(sid.to_string());
             }
             if fallback.is_none() {
