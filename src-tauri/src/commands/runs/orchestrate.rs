@@ -46,6 +46,9 @@ pub(super) struct WorkflowTaskContext {
     pub workflow_mode_override: Option<String>,
     pub workspace_file: Option<PathBuf>,
     pub workspace_paths: Vec<PathBuf>,
+    /// Secondary workspace worktree infos for cleanup on error/completion.
+    /// Empty for single-project tickets.
+    pub workspace_secondary_worktrees: Vec<WorktreeInfo>,
 }
 
 /// Execute the multi-stage workflow in the background.
@@ -74,6 +77,7 @@ pub(super) async fn execute_workflow_task(ctx: WorkflowTaskContext) {
         workflow_mode_override,
         workspace_file,
         workspace_paths,
+        workspace_secondary_worktrees,
     } = ctx;
 
     if let Err(e) = db.update_run_status(&run_id, RunStatus::Running, None, None) {
@@ -114,6 +118,10 @@ pub(super) async fn execute_workflow_task(ctx: WorkflowTaskContext) {
             let _ = db.unlock_ticket(&ticket_id);
             let _ = safety_commit_and_record(&db, &worktree_info.path, &run_id, None, None, Some(&worktree_info.branch_name));
             let _ = worktree::remove_worktree(&worktree_info.path, &main_repo_path);
+            for extra_wt in &workspace_secondary_worktrees {
+                let _ = worktree::safety_commit_if_needed(&extra_wt.path, &run_id);
+                let _ = worktree::remove_worktree(&extra_wt.path, &extra_wt.repo_path);
+            }
             let _ = window.emit("agent-error", &AgentErrorEvent {
                 run_id: run_id.clone(),
                 error: format!("Failed to start task: {}", e),
@@ -355,6 +363,45 @@ pub(super) async fn execute_workflow_task(ctx: WorkflowTaskContext) {
     // Only delete the detour branch if the merge succeeded; preserve it for manual merge otherwise
     if detour_merged {
         worktree::delete_branch(&main_repo_path, &worktree_info.branch_name);
+    }
+
+    // Clean up secondary workspace worktrees
+    for extra_wt in &workspace_secondary_worktrees {
+        let _ = worktree::safety_commit_if_needed(&extra_wt.path, &run_id);
+        if let (Some(ref target), Some(ref fork_point)) =
+            (&extra_wt.target_branch, &extra_wt.detour_fork_point)
+        {
+            match worktree::merge_detour_into_target(
+                &extra_wt.repo_path,
+                &extra_wt.branch_name,
+                target,
+                fork_point,
+            ) {
+                Ok(
+                    worktree::DetourMergeResult::Merged { .. }
+                    | worktree::DetourMergeResult::MergedWorkingTreeDirty { .. }
+                    | worktree::DetourMergeResult::MergedWorkingTreeStale { .. }
+                    | worktree::DetourMergeResult::NothingToMerge,
+                ) => {
+                    worktree::delete_branch(&extra_wt.repo_path, &extra_wt.branch_name);
+                }
+                Ok(worktree::DetourMergeResult::Diverged { .. }) | Err(_) => {
+                    tracing::warn!(
+                        "Could not merge workspace detour {} into {} for repo {}",
+                        extra_wt.branch_name,
+                        target,
+                        extra_wt.repo_path.display()
+                    );
+                }
+            }
+        }
+        if let Err(e) = worktree::remove_worktree(&extra_wt.path, &extra_wt.repo_path) {
+            tracing::warn!(
+                "Failed to remove workspace worktree {}: {}",
+                extra_wt.path.display(),
+                e
+            );
+        }
     }
 }
 

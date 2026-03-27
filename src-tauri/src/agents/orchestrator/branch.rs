@@ -99,6 +99,10 @@ Do NOT start implementing any code changes. Just rename the branch.
 
         let _rename_result = self.run_stage("branch", &rename_prompt).await?;
 
+        // Rename branches in all secondary workspace worktrees so every
+        // project in the workspace shares the same branch name.
+        self.rename_workspace_secondary_branches(temp_branch_name, &new_branch_name);
+
         // Now that the git rename succeeded, store the NEW branch name on ticket
         self.store_branch_name(&new_branch_name);
 
@@ -229,6 +233,79 @@ Do NOT start implementing any code changes. Just create the branch.
         let _branch_result = self.run_stage("branch", &branch_prompt).await?;
 
         Ok(())
+    }
+
+    /// Rename branches in all secondary workspace worktrees using direct git
+    /// commands. The primary worktree's branch is already renamed by the agent;
+    /// this ensures secondary projects also have the new branch name so that
+    /// `get_ticket_working_dirs` can find all worktrees by branch.
+    fn rename_workspace_secondary_branches(&self, old_branch: &str, new_branch: &str) {
+        if self.workspace_paths.is_empty() {
+            return;
+        }
+
+        let primary = self.repo_path.to_string_lossy().to_string();
+
+        for ws_path in &self.workspace_paths {
+            let ws_path_str = ws_path.to_string_lossy().to_string();
+            if ws_path_str == primary {
+                continue;
+            }
+
+            if !ws_path.exists() {
+                tracing::warn!(
+                    "Workspace path {} does not exist, skipping branch rename",
+                    ws_path_str
+                );
+                continue;
+            }
+
+            tracing::info!(
+                "Renaming branch '{}' -> '{}' in workspace worktree {}",
+                old_branch, new_branch, ws_path_str
+            );
+
+            let rename_result = std::process::Command::new("git")
+                .args(["branch", "-m", old_branch, new_branch])
+                .current_dir(ws_path)
+                .output();
+
+            match rename_result {
+                Ok(output) if output.status.success() => {
+                    tracing::info!(
+                        "Successfully renamed branch in workspace worktree {}",
+                        ws_path_str
+                    );
+                    // Push the renamed branch to origin
+                    let push_result = std::process::Command::new("git")
+                        .args(["push", "-u", "origin", new_branch])
+                        .current_dir(ws_path)
+                        .output();
+                    if let Ok(po) = push_result {
+                        if !po.status.success() {
+                            let stderr = String::from_utf8_lossy(&po.stderr);
+                            tracing::warn!(
+                                "Failed to push renamed branch in workspace worktree {}: {}",
+                                ws_path_str, stderr.trim()
+                            );
+                        }
+                    }
+                }
+                Ok(output) => {
+                    let stderr = String::from_utf8_lossy(&output.stderr);
+                    tracing::error!(
+                        "Failed to rename branch in workspace worktree {}: {}",
+                        ws_path_str, stderr.trim()
+                    );
+                }
+                Err(e) => {
+                    tracing::error!(
+                        "Failed to run git branch -m in workspace worktree {}: {}",
+                        ws_path_str, e
+                    );
+                }
+            }
+        }
     }
 
     /// Store a branch name on the ticket and emit update event.

@@ -600,65 +600,111 @@ impl WorkflowOrchestrator {
         let cmd = "add-and-commit";
         if self.should_skip_stage(cmd) {
             tracing::info!("Skipping '{}' stage (resuming from later stage)", cmd);
-        } else if !self.is_stage_enabled(cmd) {
+            return Ok(());
+        }
+        if !self.is_stage_enabled(cmd) {
             tracing::info!("Skipping '{}' stage (disabled in workflow settings)", cmd);
-        } else if self.is_cancelled() {
+            return Ok(());
+        }
+        if self.is_cancelled() {
             return Err("Workflow cancelled".to_string());
+        }
+
+        let custom_dir = self.custom_commands_dir();
+        let base_prompt = generate_command_prompt(cmd, custom_dir.as_deref());
+
+        if self.ticket.workspace_id.is_some() {
+            // For workspace tickets, run add-and-commit for each project that
+            // has changes, rather than only committing in the primary CWD and
+            // leaving secondary projects with a basic auto-commit.
+            self.run_workspace_commit_stage(cmd, &base_prompt).await?;
         } else {
-            let custom_dir = self.custom_commands_dir();
-            let base_prompt = generate_command_prompt(cmd, custom_dir.as_deref());
             let prompt = self.append_workspace_context_to_prompt(&base_prompt);
             self.run_stage(cmd, &prompt).await?;
         }
 
-        self.commit_secondary_workspace_worktrees();
-
         Ok(())
     }
 
-    /// For workspace tickets, commit any uncommitted changes in secondary project
-    /// worktrees. The agent's add-and-commit only commits in the primary worktree
-    /// (its CWD), but stages may have written changes to secondary projects via
-    /// --add-dir paths.
-    fn commit_secondary_workspace_worktrees(&self) {
-        if self.ticket.workspace_id.is_none() {
-            return;
-        }
-
+    /// Run the add-and-commit stage for each workspace project that has changes.
+    /// The primary project runs first (in the orchestrator's CWD), then each
+    /// secondary project runs in its own worktree directory.
+    async fn run_workspace_commit_stage(
+        &self,
+        cmd: &str,
+        base_prompt: &str,
+    ) -> Result<(), String> {
         let dirs = match crate::commands::next_steps::get_ticket_working_dirs(
             &self.db,
             &self.ticket.id,
         ) {
             Ok(dirs) if dirs.len() > 1 => dirs,
-            _ => return,
+            _ => {
+                // Fallback: single project or resolution failed, commit in primary
+                let prompt = self.append_workspace_context_to_prompt(base_prompt);
+                self.run_stage(cmd, &prompt).await?;
+                return Ok(());
+            }
         };
 
         let primary = self.repo_path.to_string_lossy().to_string();
-        let commit_msg = format!("chore: {}", self.ticket.title);
 
+        // Run add-and-commit in the primary project first
+        let prompt = self.append_workspace_context_to_prompt(base_prompt);
+        self.run_stage(cmd, &prompt).await?;
+
+        // Run add-and-commit for each secondary project that has uncommitted changes
         for (_, project_name, working_dir, _) in &dirs {
             if *working_dir == primary {
                 continue;
             }
 
             if !crate::commands::next_steps::has_uncommitted_changes(working_dir) {
+                tracing::info!(
+                    "Workspace project '{}' has no uncommitted changes, skipping commit",
+                    project_name
+                );
                 continue;
             }
 
+            if self.is_cancelled() {
+                return Err("Workflow cancelled".to_string());
+            }
+
             tracing::info!(
-                "Committing uncommitted changes in workspace project '{}' ({})",
-                project_name,
-                working_dir
+                "Running add-and-commit for workspace project '{}' ({})",
+                project_name, working_dir
             );
 
-            if let Err(e) = crate::commands::next_steps::commit_all_changes(working_dir, &commit_msg) {
-                tracing::error!(
-                    "Failed to commit changes in workspace project '{}': {}",
-                    project_name,
-                    e
-                );
+            let dir_path = std::path::PathBuf::from(working_dir);
+            match self.run_stage_in_dir(cmd, base_prompt, &dir_path).await {
+                Ok(_) => {
+                    tracing::info!(
+                        "Successfully committed changes in workspace project '{}'",
+                        project_name
+                    );
+                }
+                Err(e) => {
+                    tracing::error!(
+                        "Agent add-and-commit failed for workspace project '{}', \
+                         falling back to basic commit: {}",
+                        project_name, e
+                    );
+                    // Fallback: do a basic commit so work isn't lost
+                    let commit_msg = format!("chore: {}", self.ticket.title);
+                    if let Err(commit_err) =
+                        crate::commands::next_steps::commit_all_changes(working_dir, &commit_msg)
+                    {
+                        tracing::error!(
+                            "Fallback commit also failed for workspace project '{}': {}",
+                            project_name, commit_err
+                        );
+                    }
+                }
             }
         }
+
+        Ok(())
     }
 
     async fn run_command_stage(&self, cmd: &str) -> Result<(), String> {

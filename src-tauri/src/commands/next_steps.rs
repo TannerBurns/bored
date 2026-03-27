@@ -146,7 +146,39 @@ pub fn get_ticket_working_dirs(
 
 /// Resolve the working directory for a specific project and branch.
 /// Returns the worktree path if one exists for this branch, otherwise the project path.
+///
+/// NOTE: For contexts where a missing worktree indicates a real problem (e.g. during
+/// active agent runs), use `resolve_working_dir_strict` instead to avoid silently
+/// operating on the main checkout.
 pub fn resolve_working_dir_for_project(project_path: &str, branch: &str) -> Result<String, String> {
+    match find_worktree_for_branch(project_path, branch)? {
+        Some(worktree_path) => Ok(worktree_path),
+        None => Ok(project_path.to_string()),
+    }
+}
+
+/// Strict variant that returns Err when no worktree exists for the branch.
+/// Use during active agent runs where falling back to the main checkout would
+/// cause work to be lost or applied to the wrong directory.
+pub fn resolve_working_dir_strict(project_path: &str, branch: &str) -> Result<String, String> {
+    match find_worktree_for_branch(project_path, branch)? {
+        Some(worktree_path) => Ok(worktree_path),
+        None => {
+            tracing::warn!(
+                "No worktree found for branch '{}' in project '{}' (strict mode — not falling back to main repo)",
+                branch, project_path
+            );
+            Err(format!(
+                "No worktree found for branch '{}' in project '{}'",
+                branch, project_path
+            ))
+        }
+    }
+}
+
+/// Scan git worktree list for a worktree matching the given branch.
+/// Returns `Ok(Some(path))` if found, `Ok(None)` if not, `Err` on git failures.
+fn find_worktree_for_branch(project_path: &str, branch: &str) -> Result<Option<String>, String> {
     let worktree_output = Command::new("git")
         .args(["worktree", "list", "--porcelain"])
         .current_dir(project_path)
@@ -164,7 +196,7 @@ pub fn resolve_working_dir_for_project(project_path: &str, branch: &str) -> Resu
             let wt_branch = branch_ref.strip_prefix("refs/heads/").unwrap_or(branch_ref);
             if wt_branch == branch {
                 if std::path::Path::new(&current_worktree).exists() {
-                    return Ok(current_worktree);
+                    return Ok(Some(current_worktree));
                 }
                 tracing::warn!(
                     "Worktree for branch {} listed at {} but directory missing, pruning stale reference",
@@ -180,7 +212,7 @@ pub fn resolve_working_dir_for_project(project_path: &str, branch: &str) -> Resu
         }
     }
 
-    Ok(project_path.to_string())
+    Ok(None)
 }
 
 /// Resolve working dir + branch for a specific project within a ticket, or fall

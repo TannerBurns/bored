@@ -31,7 +31,10 @@ mod worktree_setup;
 // Public re-exports
 pub use config::{WorkerConfig, WorkerState, WorkerStatus};
 pub use manager::WorkerManager;
-pub use worktree_setup::{WorkspaceWorktreeError, WorkspaceWorktreeSet, create_worktrees_for_workspace};
+pub use worktree_setup::{
+    WorkspaceWorktreeError, WorkspaceWorktreeSet, WorktreeSetupContext, WorktreeSetupResult,
+    create_worktree_for_ticket, create_worktrees_for_workspace,
+};
 
 pub struct Worker {
     pub id: String,
@@ -276,6 +279,7 @@ impl Worker {
                         provider: self.config.provider.clone(),
                         agent_config: self.config.agent_config.clone(),
                         diagnostic_model,
+                        override_branch_name: None,
                     },
                 )
                 .await
@@ -334,6 +338,9 @@ impl Worker {
             );
             let _ = self.db.unlock_ticket(&ticket.id);
             let _ = worktree::remove_worktree(&worktree.path, &worktree.repo_path);
+            for extra_wt in &extra_worktrees {
+                let _ = worktree::remove_worktree(&extra_wt.path, &extra_wt.repo_path);
+            }
             return Err(e.into());
         }
 
@@ -400,6 +407,9 @@ impl Worker {
                 // Clean up
                 self.db.unlock_ticket(&ticket.id)?;
                 let _ = worktree::remove_worktree(&worktree.path, &worktree.repo_path);
+                for extra_wt in &extra_worktrees {
+                    let _ = worktree::remove_worktree(&extra_wt.path, &extra_wt.repo_path);
+                }
 
                 // Reset worker status
                 {
@@ -437,6 +447,9 @@ impl Worker {
                 );
                 self.db.unlock_ticket(&ticket.id)?;
                 let _ = worktree::remove_worktree(&worktree.path, &worktree.repo_path);
+                for extra_wt in &extra_worktrees {
+                    let _ = worktree::remove_worktree(&extra_wt.path, &extra_wt.repo_path);
+                }
                 return Err(format!("Failed to start task {}: {}", t.id, e).into());
             }
         }

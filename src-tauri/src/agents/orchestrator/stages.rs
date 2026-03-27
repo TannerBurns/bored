@@ -515,6 +515,171 @@ impl WorkflowOrchestrator {
         .await
     }
 
+    /// Run a single stage in a specific directory (instead of the primary repo_path).
+    /// Used by the commit stage to run add-and-commit in each workspace project.
+    pub(super) async fn run_stage_in_dir(
+        &self,
+        stage: &str,
+        prompt: &str,
+        dir: &std::path::Path,
+    ) -> Result<AgentRunResult, String> {
+        let sid = self.get_workflow_session_id();
+        let max_attempts = self.stage_max_retries + 1;
+        let mut last_error = String::new();
+
+        for attempt in 1..=max_attempts {
+            if self.is_cancelled() {
+                return Err("Workflow cancelled".to_string());
+            }
+
+            if attempt > 1 {
+                let backoff_secs = 5 * attempt as u64;
+                tracing::warn!(
+                    "Stage '{}' (in {}) retry {}/{} after {}s backoff",
+                    stage, dir.display(), attempt, max_attempts, backoff_secs
+                );
+                for _ in 0..backoff_secs {
+                    if self.is_cancelled() {
+                        return Err("Workflow cancelled".to_string());
+                    }
+                    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                }
+            }
+
+            let attempt_session_id = if attempt == 1 { sid.as_deref() } else { None };
+
+            if attempt == 1 {
+                self.emit_stage_event(stage, "running", None, None);
+            }
+
+            let db_agent_type = self.agent_id.clone();
+            let sub_run = self
+                .db
+                .create_run(&CreateRun {
+                    ticket_id: self.ticket.id.clone(),
+                    agent_type: db_agent_type,
+                    repo_path: dir.to_string_lossy().to_string(),
+                    parent_run_id: Some(self.parent_run_id.clone()),
+                    stage: Some(stage.to_string()),
+                    ..Default::default()
+                })
+                .map_err(|e| format!("Failed to create sub-run: {}", e))?;
+
+            self.db
+                .update_run_status(&sub_run.id, RunStatus::Running, None, None)
+                .map_err(|e| format!("Failed to update sub-run status: {}", e))?;
+
+            let stage_model = self.get_stage_model(stage);
+            let config = AgentRunConfig {
+                agent_id: self.agent_id.clone(),
+                ticket_id: self.ticket.id.clone(),
+                run_id: sub_run.id.clone(),
+                repo_path: dir.to_path_buf(),
+                prompt: prompt.to_string(),
+                timeout_secs: Some(self.stage_timeout_secs),
+                model: Some(stage_model.clone()),
+                agent_config: self.agent_config.clone(),
+                session_id: attempt_session_id.map(|s| s.to_string()),
+                workspace_file: self.workspace_file.clone(),
+                workspace_paths: self.workspace_paths.clone(),
+                debug_mode: self.debug_mode,
+            };
+
+            let on_log = self.create_log_callback();
+            let cancel_handles = self.cancel_handles.clone();
+            let sub_run_id_for_spawn = sub_run.id.clone();
+            let sub_run_id_for_cleanup = sub_run.id.clone();
+            let parent_run_id = self.parent_run_id.clone();
+            let cancelled = self.cancelled.clone();
+
+            let on_spawn: crate::agents::spawner::OnSpawnCallback =
+                Box::new(move |cancel_handle| {
+                    let mut handles = cancel_handles
+                        .lock()
+                        .expect("cancel handles mutex poisoned");
+                    if let Some(prev_handle) = handles.get(&parent_run_id) {
+                        if prev_handle.is_cancelled() {
+                            cancel_handle.cancel();
+                        }
+                    }
+                    handles.insert(sub_run_id_for_spawn.clone(), cancel_handle.clone());
+                    handles.insert(parent_run_id.clone(), cancel_handle);
+                });
+
+            let provider = self.provider.clone();
+            let runner = self.stage_runner.clone();
+            let start_time = std::time::Instant::now();
+            let spawn_result = tokio::task::spawn_blocking(move || {
+                runner.run(&*provider, &config, Some(on_log), Some(on_spawn))
+            })
+            .await;
+
+            let result = match spawn_result {
+                Ok(Ok(r)) => r,
+                err => {
+                    let duration_secs = start_time.elapsed().as_secs_f64();
+                    let err_msg = match err {
+                        Err(e) => format!("Stage task failed: {}", e),
+                        Ok(Err(e)) => format!("Stage execution failed: {}", e),
+                        Ok(Ok(_)) => unreachable!(),
+                    };
+                    let _ = self.db.update_run_status(
+                        &sub_run.id, RunStatus::Error, None, Some(&err_msg),
+                    );
+                    {
+                        let mut handles = self.cancel_handles.lock().expect("cancel handles mutex poisoned");
+                        handles.remove(&sub_run_id_for_cleanup);
+                    }
+                    self.emit_stage_event(stage, RunStatus::Error.as_str(), Some(sub_run.id.clone()), Some(duration_secs));
+                    last_error = err_msg;
+                    if attempt < max_attempts {
+                        continue;
+                    }
+                    return Err(format!("{} (after {} attempts)", last_error, max_attempts));
+                }
+            };
+
+            {
+                let mut handles = self.cancel_handles.lock().expect("cancel handles mutex poisoned");
+                handles.remove(&sub_run_id_for_cleanup);
+            }
+
+            if result.status == RunOutcome::Cancelled {
+                cancelled.store(true, std::sync::atomic::Ordering::Relaxed);
+            }
+
+            let duration_secs = start_time.elapsed().as_secs_f64();
+            let status = match result.status {
+                RunOutcome::Success => RunStatus::Finished,
+                RunOutcome::Error => RunStatus::Error,
+                RunOutcome::Timeout => RunStatus::Error,
+                RunOutcome::Cancelled => RunStatus::Aborted,
+            };
+
+            let _ = self.db.update_run_status(
+                &sub_run.id, status.clone(), result.exit_code, result.summary.as_deref(),
+            );
+
+            self.emit_stage_event(stage, status.as_str(), Some(sub_run.id.clone()), Some(duration_secs));
+
+            if result.status != RunOutcome::Success {
+                last_error = format!("Stage '{}' failed with status {:?}", stage, result.status);
+                if result.status == RunOutcome::Cancelled {
+                    return Err(last_error);
+                }
+                if attempt < max_attempts {
+                    continue;
+                }
+                return Err(format!("{} (after {} attempts)", last_error, max_attempts));
+            }
+
+            tracing::info!("Stage '{}' (in {}) completed in {:.1}s", stage, dir.display(), duration_secs);
+            return Ok(result);
+        }
+
+        Err(format!("{} (after {} attempts)", last_error, max_attempts))
+    }
+
     /// For workspace tickets, append the combined workspace diff context to a prompt.
     pub(super) fn append_workspace_context_to_prompt(&self, prompt: &str) -> String {
         match self.build_workspace_diff_context() {

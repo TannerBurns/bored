@@ -22,6 +22,10 @@ pub struct WorktreeSetupContext<'a> {
     pub provider: Arc<dyn AgentProvider>,
     pub agent_config: HashMap<String, serde_json::Value>,
     pub diagnostic_model: Option<String>,
+    /// When set, use this branch name instead of generating one from run_id.
+    /// Used by workspace worktree creation to ensure all projects share the
+    /// same branch name.
+    pub override_branch_name: Option<String>,
 }
 
 /// Result of worktree setup
@@ -99,11 +103,15 @@ async fn create_worktree_with_existing_branch(
 
 /// Create a worktree with a new temporary branch
 async fn create_worktree_with_new_branch(ctx: &WorktreeSetupContext<'_>) -> WorktreeSetupResult {
-    let temp_branch = format!(
-        "agent-work/{}/{}",
-        &ctx.ticket.id[..8.min(ctx.ticket.id.len())],
-        &ctx.run_id[..8.min(ctx.run_id.len())]
-    );
+    let temp_branch = if let Some(ref override_name) = ctx.override_branch_name {
+        override_name.clone()
+    } else {
+        format!(
+            "agent-work/{}/{}",
+            &ctx.ticket.id[..8.min(ctx.ticket.id.len())],
+            &ctx.run_id[..8.min(ctx.run_id.len())]
+        )
+    };
 
     // For epic child tickets, check if previous sibling has a branch
     let base_branch = branching::get_base_branch_for_ticket(&ctx.db, ctx.ticket, ctx.worker_id);
@@ -212,8 +220,24 @@ pub async fn create_worktrees_for_workspace(
         }
     };
 
+    // Generate a single shared branch name for ALL projects in the workspace.
+    // Previously each project got a different branch derived from a per-project
+    // run_id suffix, causing only the primary project's branch to be tracked
+    // while secondary projects' work was lost.
+    let shared_branch_name = if ticket.branch_name.is_none() {
+        Some(format!(
+            "agent-work/{}/{}",
+            &ticket.id[..8.min(ticket.id.len())],
+            &run_id[..8.min(run_id.len())]
+        ))
+    } else {
+        None
+    };
+
     for (idx, project) in projects.iter().enumerate() {
         let repo_path = PathBuf::from(&project.path);
+        // Use a per-project run_id suffix only for the worktree directory path,
+        // NOT for branch naming. The branch name is shared across all projects.
         let project_run_id = if projects.len() > 1 {
             format!("{}-{}", run_id, idx)
         } else {
@@ -229,6 +253,7 @@ pub async fn create_worktrees_for_workspace(
             provider: provider.clone(),
             agent_config: agent_config.clone(),
             diagnostic_model: diagnostic_model.clone(),
+            override_branch_name: shared_branch_name.clone(),
         };
 
         match create_worktree_for_ticket(ctx).await {

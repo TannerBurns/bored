@@ -273,27 +273,69 @@ pub async fn start_agent_run(
     // We pass the Arc reference so the orchestrator can lock and read it.
     let shared_workflow_settings = workflow_settings_state.shared();
 
-    // Resolve workspace paths for multi-project tickets so the agent
-    // receives --add-dir arguments matching the prompt context.
-    // Exclude the primary project's original path — the agent accesses it
-    // through the worktree, and including the original would break isolation.
-    let (workspace_file, workspace_paths) = if let Some(ref workspace_id) = ticket.workspace_id {
-        let projects = db_clone
-            .get_workspace_projects(workspace_id)
-            .unwrap_or_default();
-        let paths: Vec<std::path::PathBuf> = projects
-            .iter()
-            .filter(|p| std::path::PathBuf::from(&p.path) != main_repo_path)
-            .map(|p| {
-                crate::commands::next_steps::resolve_working_dir_for_project(&p.path, &branch_name)
-                    .map(std::path::PathBuf::from)
-                    .unwrap_or_else(|_| std::path::PathBuf::from(&p.path))
-            })
-            .collect();
-        (None, paths)
-    } else {
-        (None, vec![])
-    };
+    // For workspace tickets, create worktrees for ALL secondary projects (not
+    // just the primary). This ensures every project has an isolated worktree
+    // with the same branch name. Previously only the primary project got a
+    // worktree, and secondary projects fell back to their main checkout.
+    let (workspace_file, workspace_paths, workspace_secondary_worktrees) =
+        if let Some(ref workspace_id) = ticket.workspace_id {
+            let projects = db_clone
+                .get_workspace_projects(workspace_id)
+                .unwrap_or_default();
+            let mut secondary_paths = Vec::new();
+            let mut secondary_worktrees = Vec::new();
+
+            for (idx, project) in projects.iter().enumerate() {
+                if std::path::PathBuf::from(&project.path) == main_repo_path {
+                    continue;
+                }
+
+                let project_run_id = format!("{}-ws-{}", run_id, idx);
+                let repo_path_buf = std::path::PathBuf::from(&project.path);
+
+                match crate::agents::worker::create_worktree_for_ticket(
+                    crate::agents::worker::WorktreeSetupContext {
+                        db: db_clone.clone(),
+                        ticket: &ticket,
+                        run_id: &project_run_id,
+                        repo_path: repo_path_buf.clone(),
+                        worker_id: "direct-run",
+                        app_handle: Some(window.app_handle().clone()),
+                        provider: provider.clone(),
+                        agent_config: agent_config.clone(),
+                        diagnostic_model: None,
+                        override_branch_name: Some(branch_name.clone()),
+                    },
+                )
+                .await
+                {
+                    crate::agents::worker::WorktreeSetupResult::Success(info) => {
+                        secondary_paths.push(info.path.clone());
+                        secondary_worktrees.push(info);
+                    }
+                    crate::agents::worker::WorktreeSetupResult::Failed {
+                        message,
+                        ..
+                    } => {
+                        tracing::warn!(
+                            "Failed to create worktree for workspace project '{}': {}, \
+                             falling back to resolved path",
+                            project.name, message
+                        );
+                        let fallback_path = crate::commands::next_steps::resolve_working_dir_for_project(
+                            &project.path, &branch_name,
+                        )
+                        .map(std::path::PathBuf::from)
+                        .unwrap_or_else(|_| std::path::PathBuf::from(&project.path));
+                        secondary_paths.push(fallback_path);
+                    }
+                }
+            }
+
+            (None, secondary_paths, secondary_worktrees)
+        } else {
+            (None, vec![], vec![])
+        };
 
     // Build workflow context and spawn background task
     let ctx = orchestrate::WorkflowTaskContext {
@@ -317,6 +359,7 @@ pub async fn start_agent_run(
         workflow_mode_override: workflow_mode,
         workspace_file,
         workspace_paths,
+        workspace_secondary_worktrees,
     };
 
     tauri::async_runtime::spawn(orchestrate::execute_workflow_task(ctx));
