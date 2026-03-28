@@ -32,6 +32,10 @@ pub struct AgentRunConfig {
     pub workspace_paths: Vec<PathBuf>,
     /// When true, the CLI command string is emitted as a system timeline entry before spawning.
     pub debug_mode: bool,
+    /// When true, skip the protected-branch guard in the spawner.
+    /// Set for read-only agents (chat, review) that legitimately run in the
+    /// main checkout without committing.
+    pub allow_protected_branch: bool,
 }
 
 /// The trait every agent implementation must satisfy.

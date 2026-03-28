@@ -230,6 +230,7 @@ impl WorkflowOrchestrator {
             workspace_file: self.workspace_file.clone(),
             workspace_paths: self.workspace_paths.clone(),
             debug_mode: self.debug_mode,
+            allow_protected_branch: false,
         };
 
         // Create log callback

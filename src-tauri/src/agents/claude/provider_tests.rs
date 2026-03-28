@@ -19,6 +19,7 @@ fn make_config() -> AgentRunConfig {
         workspace_file: None,
         workspace_paths: vec![],
         debug_mode: false,
+        allow_protected_branch: false,
     }
 }
 
@@ -741,6 +742,7 @@ fn lightweight_config_produces_valid_command() {
         workspace_file: None,
         workspace_paths: vec![],
         debug_mode: false,
+        allow_protected_branch: false,
     };
     let (cmd, args) = p.build_command(&config);
     assert_eq!(cmd, "claude");

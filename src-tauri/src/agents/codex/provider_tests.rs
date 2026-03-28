@@ -433,6 +433,7 @@ fn build_command_uses_exec_resume_when_session_set() {
         workspace_file: None,
         workspace_paths: vec![],
         debug_mode: false,
+        allow_protected_branch: false,
     };
     let (cmd, args) = p.build_command(&config);
     assert_eq!(cmd, "codex");
@@ -459,6 +460,7 @@ fn build_command_uses_plain_exec_when_no_session() {
         workspace_file: None,
         workspace_paths: vec![],
         debug_mode: false,
+        allow_protected_branch: false,
     };
     let (_, args) = p.build_command(&config);
     assert_eq!(args[0], "exec");

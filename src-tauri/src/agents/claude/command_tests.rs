@@ -18,6 +18,7 @@ fn create_provider_config() -> AgentRunConfig {
         workspace_file: None,
         workspace_paths: vec![],
         debug_mode: false,
+        allow_protected_branch: false,
     }
 }
 

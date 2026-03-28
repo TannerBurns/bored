@@ -219,6 +219,26 @@ pub fn safety_commit_if_needed(worktree_path: &Path, run_id: &str) -> Result<Opt
         return Ok(None);
     }
 
+    let wt_str = worktree_path.to_string_lossy();
+    if let Some(branch) = crate::commands::git_helpers::get_current_branch(&wt_str) {
+        if crate::commands::git_helpers::is_protected_branch(&branch) {
+            tracing::error!(
+                "REFUSED: safety_commit_if_needed would commit on protected branch '{}' in {}",
+                branch, wt_str
+            );
+            return Err(WorktreeError::GitError {
+                message: format!(
+                    "Refused to safety-commit on protected branch '{}'. \
+                     This worktree path appears to be the main checkout, not a feature worktree.",
+                    branch
+                ),
+                stderr: String::new(),
+                exit_code: None,
+                operation: "branch guard check".to_string(),
+            });
+        }
+    }
+
     tracing::info!(
         "Worktree at {} has uncommitted changes, creating safety commit for run {}",
         worktree_path.display(),

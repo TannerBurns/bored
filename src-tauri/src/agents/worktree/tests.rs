@@ -603,6 +603,16 @@ fn test_create_initial_commit_with_existing_files() {
     std::fs::remove_dir_all(&temp_dir).ok();
 }
 
+/// Switch from the default branch to a feature branch so that safety_commit
+/// tests don't trip the protected-branch guard.
+fn checkout_feature_branch(path: &std::path::Path) {
+    std::process::Command::new("git")
+        .args(["checkout", "-b", "feat/test-work"])
+        .current_dir(path)
+        .output()
+        .expect("checkout feature branch");
+}
+
 // --- safety_commit_if_needed tests ---
 
 #[test]
@@ -610,6 +620,7 @@ fn test_safety_commit_clean_worktree_returns_none() {
     let temp_dir =
         std::env::temp_dir().join(format!("safety_commit_clean_{}", uuid::Uuid::new_v4()));
     init_repo_with_commit(&temp_dir);
+    checkout_feature_branch(&temp_dir);
 
     let result = manage::safety_commit_if_needed(&temp_dir, "run-123");
     assert!(result.is_ok());
@@ -623,6 +634,7 @@ fn test_safety_commit_dirty_worktree_returns_hash() {
     let temp_dir =
         std::env::temp_dir().join(format!("safety_commit_dirty_{}", uuid::Uuid::new_v4()));
     init_repo_with_commit(&temp_dir);
+    checkout_feature_branch(&temp_dir);
 
     std::fs::write(temp_dir.join("new_file.txt"), "uncommitted work").unwrap();
 
@@ -664,6 +676,7 @@ fn test_safety_commit_staged_changes_returns_hash() {
     let temp_dir =
         std::env::temp_dir().join(format!("safety_commit_staged_{}", uuid::Uuid::new_v4()));
     init_repo_with_commit(&temp_dir);
+    checkout_feature_branch(&temp_dir);
 
     std::fs::write(temp_dir.join("staged.txt"), "staged content").unwrap();
     std::process::Command::new("git")
@@ -692,6 +705,7 @@ fn test_safety_commit_modified_file_returns_hash() {
     let temp_dir =
         std::env::temp_dir().join(format!("safety_commit_modified_{}", uuid::Uuid::new_v4()));
     init_repo_with_commit(&temp_dir);
+    checkout_feature_branch(&temp_dir);
 
     // Modify an existing tracked file
     std::fs::write(temp_dir.join("README.md"), "modified content").unwrap();
@@ -708,6 +722,7 @@ fn test_safety_commit_deleted_file_returns_hash() {
     let temp_dir =
         std::env::temp_dir().join(format!("safety_commit_deleted_{}", uuid::Uuid::new_v4()));
     init_repo_with_commit(&temp_dir);
+    checkout_feature_branch(&temp_dir);
 
     std::fs::remove_file(temp_dir.join("README.md")).unwrap();
 
@@ -723,6 +738,7 @@ fn test_safety_commit_message_format() {
     let temp_dir =
         std::env::temp_dir().join(format!("safety_commit_msg_{}", uuid::Uuid::new_v4()));
     init_repo_with_commit(&temp_dir);
+    checkout_feature_branch(&temp_dir);
 
     std::fs::write(temp_dir.join("change.txt"), "content").unwrap();
 
@@ -749,6 +765,7 @@ fn test_safety_commit_idempotent_second_call_returns_none() {
     let temp_dir =
         std::env::temp_dir().join(format!("safety_commit_idempotent_{}", uuid::Uuid::new_v4()));
     init_repo_with_commit(&temp_dir);
+    checkout_feature_branch(&temp_dir);
 
     std::fs::write(temp_dir.join("file.txt"), "content").unwrap();
 
@@ -768,6 +785,7 @@ fn test_safety_commit_mixed_changes() {
     let temp_dir =
         std::env::temp_dir().join(format!("safety_commit_mixed_{}", uuid::Uuid::new_v4()));
     init_repo_with_commit(&temp_dir);
+    checkout_feature_branch(&temp_dir);
 
     // Create a tracked file, commit it, then set up mixed state
     std::fs::write(temp_dir.join("tracked.txt"), "original").unwrap();

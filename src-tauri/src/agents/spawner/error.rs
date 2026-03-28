@@ -14,4 +14,7 @@ pub enum SpawnError {
 
     #[error("CLI not found: {0}")]
     CliNotFound(String),
+
+    #[error("Protected branch: {0}")]
+    ProtectedBranch(String),
 }

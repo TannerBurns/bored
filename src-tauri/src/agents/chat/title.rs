@@ -98,6 +98,7 @@ pub fn spawn_title_generation(params: TitleGenParams) {
             workspace_file,
             workspace_paths,
             debug_mode: false,
+            allow_protected_branch: true,
         };
 
         let provider_clone = provider.clone();
