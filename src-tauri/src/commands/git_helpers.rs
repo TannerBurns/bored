@@ -177,8 +177,9 @@ pub(super) fn check_has_unpushed(working_dir: &str, branch: &str) -> bool {
 }
 
 /// Push a single working directory's branch to origin.
-/// Refuses to operate if `branch` is a protected branch name or the working
-/// directory is currently checked out on a protected branch.
+/// Refuses to push a protected branch name. If there are uncommitted changes,
+/// auto-commits them first — but only if the CWD is not on a protected branch
+/// (to avoid accidentally committing to main).
 pub(super) fn push_single_branch(working_dir: &str, branch: &str, ticket_title: &str) -> PushResult {
     if is_protected_branch(branch) {
         return PushResult {
@@ -190,15 +191,18 @@ pub(super) fn push_single_branch(working_dir: &str, branch: &str, ticket_title: 
             branch: branch.to_string(),
         };
     }
-    if let Err(e) = assert_not_on_protected_branch(working_dir) {
-        return PushResult {
-            success: false,
-            message: e,
-            branch: branch.to_string(),
-        };
-    }
 
     if has_uncommitted_changes(working_dir) {
+        if let Err(e) = assert_not_on_protected_branch(working_dir) {
+            return PushResult {
+                success: false,
+                message: format!(
+                    "Uncommitted changes exist but cannot auto-commit: {}",
+                    e
+                ),
+                branch: branch.to_string(),
+            };
+        }
         let commit_type = infer_commit_type_from_branch(branch);
         let commit_msg = format!("{}: {}", commit_type, ticket_title);
         if let Err(e) = commit_all_changes(working_dir, &commit_msg) {
@@ -243,8 +247,9 @@ pub(super) fn push_single_branch(working_dir: &str, branch: &str, ticket_title: 
 }
 
 /// Create a PR for a single working directory.
-/// Refuses to operate if `branch` is a protected branch name or the working
-/// directory is currently checked out on a protected branch.
+/// Refuses to create a PR from a protected branch name. If there are uncommitted
+/// changes, auto-commits them first — but only if the CWD is not on a protected
+/// branch (to avoid accidentally committing to main).
 pub(super) fn create_pr_for_project(
     working_dir: &str,
     branch: &str,
@@ -262,15 +267,18 @@ pub(super) fn create_pr_for_project(
             ),
         };
     }
-    if let Err(e) = assert_not_on_protected_branch(working_dir) {
-        return PullRequestResult {
-            success: false,
-            url: None,
-            message: e,
-        };
-    }
 
     if has_uncommitted_changes(working_dir) {
+        if let Err(e) = assert_not_on_protected_branch(working_dir) {
+            return PullRequestResult {
+                success: false,
+                url: None,
+                message: format!(
+                    "Uncommitted changes exist but cannot auto-commit: {}",
+                    e
+                ),
+            };
+        }
         let commit_type = infer_commit_type_from_branch(branch);
         let commit_msg = format!("{}: {}", commit_type, ticket_title);
         if let Err(e) = commit_all_changes(working_dir, &commit_msg) {
@@ -696,11 +704,17 @@ mod tests {
     }
 
     #[test]
-    fn push_single_branch_refuses_protected_working_dir() {
-        let (_dir, path) = init_temp_repo();
+    fn push_single_branch_refuses_auto_commit_on_protected_working_dir() {
+        let (dir, path) = init_temp_repo();
+        std::fs::write(dir.path().join("dirty.txt"), "uncommitted").unwrap();
+
         let result = push_single_branch(&path, "feat/something", "title");
         assert!(!result.success);
-        assert!(result.message.contains("REFUSED"), "should mention REFUSED: {}", result.message);
+        assert!(
+            result.message.contains("cannot auto-commit"),
+            "should mention cannot auto-commit: {}", result.message
+        );
+        assert!(has_uncommitted_changes(&path), "changes should still be uncommitted");
     }
 
     #[test]
