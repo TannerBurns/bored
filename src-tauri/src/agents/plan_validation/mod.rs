@@ -336,7 +336,7 @@ pub async fn rewrite_task_with_clarification(
         workspace_file: None,
         workspace_paths: vec![],
         debug_mode: false,
-        allow_protected_branch: false,
+        allow_protected_branch: true,
     };
 
     let db = config.db.clone();
