@@ -827,6 +827,36 @@ fn test_safety_commit_mixed_changes() {
     std::fs::remove_dir_all(&temp_dir).ok();
 }
 
+#[test]
+fn test_safety_commit_refuses_on_protected_branch() {
+    let temp_dir =
+        std::env::temp_dir().join(format!("safety_commit_protected_{}", uuid::Uuid::new_v4()));
+    init_repo_with_commit(&temp_dir);
+
+    std::fs::write(temp_dir.join("dirty.txt"), "uncommitted work").unwrap();
+
+    let result = manage::safety_commit_if_needed(&temp_dir, "run-protected");
+    assert!(result.is_err(), "should refuse to commit on the default (protected) branch");
+    let err_msg = format!("{}", result.unwrap_err());
+    assert!(
+        err_msg.contains("protected branch"),
+        "error should mention protected branch: {}",
+        err_msg
+    );
+
+    let status = std::process::Command::new("git")
+        .args(["status", "--porcelain"])
+        .current_dir(&temp_dir)
+        .output()
+        .unwrap();
+    assert!(
+        !String::from_utf8_lossy(&status.stdout).trim().is_empty(),
+        "changes should still be uncommitted after refusal"
+    );
+
+    std::fs::remove_dir_all(&temp_dir).ok();
+}
+
 // --- resolve_remote_default_branch tests ---
 
 /// Helper: initialize a git repo at `path` with one commit.

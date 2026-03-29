@@ -436,6 +436,78 @@ Let me know if you want changes."###;
         assert_eq!(parsed.tickets[0].title, "Fix it");
     }
 
+    // --- extract_balanced_json direct tests ---
+
+    #[test]
+    fn balanced_json_simple_object() {
+        assert_eq!(extract_balanced_json(r#"{"a": 1}"#), Some(r#"{"a": 1}"#));
+    }
+
+    #[test]
+    fn balanced_json_nested_objects() {
+        let input = r#"{"outer": {"inner": {"deep": true}}}"#;
+        assert_eq!(extract_balanced_json(input), Some(input));
+    }
+
+    #[test]
+    fn balanced_json_skips_braces_in_strings() {
+        let input = r#"{"desc": "a { b } c"}"#;
+        assert_eq!(extract_balanced_json(input), Some(input));
+    }
+
+    #[test]
+    fn balanced_json_handles_escaped_quotes() {
+        let input = r#"{"desc": "she said \"hello {}\""}"#;
+        assert_eq!(extract_balanced_json(input), Some(input));
+    }
+
+    #[test]
+    fn balanced_json_returns_none_for_unmatched() {
+        assert_eq!(extract_balanced_json(r#"{"unclosed": true"#), None);
+    }
+
+    #[test]
+    fn balanced_json_returns_none_for_empty() {
+        assert_eq!(extract_balanced_json(""), None);
+    }
+
+    #[test]
+    fn balanced_json_stops_at_first_match() {
+        let input = r#"{"a": 1} trailing {"b": 2}"#;
+        assert_eq!(extract_balanced_json(input), Some(r#"{"a": 1}"#));
+    }
+
+    #[test]
+    fn balanced_json_handles_backslash_at_end_of_string() {
+        let input = r#"{"path": "C:\\foo\\bar"}"#;
+        assert_eq!(extract_balanced_json(input), Some(input));
+    }
+
+    // --- extract_json_block strategy tests ---
+
+    #[test]
+    fn extract_json_block_returns_none_for_no_json() {
+        assert_eq!(extract_json_block("Just plain text, no JSON here."), None);
+    }
+
+    #[test]
+    fn extract_json_block_bare_json_with_preamble_braces() {
+        let text = r#"The interface{} type in Go is flexible.
+Here is the result: { "tickets": [{ "title": "T1", "description": "D", "priority": "low" }] } done."#;
+        let result = extract_json_block(text);
+        assert!(result.is_some());
+        let json = result.unwrap();
+        assert!(json.contains("\"tickets\""));
+        assert!(json.starts_with('{'));
+        assert!(json.ends_with('}'));
+    }
+
+    #[test]
+    fn extract_json_block_code_fence_no_brace_returns_none() {
+        let text = "```json\n  no brace here\n```";
+        assert_eq!(extract_json_block(text), None);
+    }
+
     #[test]
     fn parse_raw_json_fallback() {
         let text = r#"{ "tickets": [{ "title": "Fix bug", "description": "Fix it", "priority": "low", "tasks": [] }] }"#;

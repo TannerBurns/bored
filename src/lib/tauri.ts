@@ -14,6 +14,7 @@ import type {
   AggregatedCost,
   Workspace,
   ProjectBranchStatus,
+  TicketGitStats,
 } from '../types';
 
 // API configuration
@@ -94,6 +95,10 @@ export async function getWorkspaceProjects(workspaceId: string): Promise<Project
 
 export async function getWorkspaceBranchStatus(ticketId: string): Promise<ProjectBranchStatus[]> {
   return invoke('get_workspace_branch_status', { ticketId });
+}
+
+export async function getTicketGitStats(ticketId: string): Promise<TicketGitStats | null> {
+  return invoke('get_ticket_git_stats', { ticketId });
 }
 
 export async function checkTicketReadiness(

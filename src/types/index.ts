@@ -583,6 +583,17 @@ export interface WorkspacePushResult {
   results: ProjectPushResult[];
 }
 
+export interface TicketGitStats {
+  id: string;
+  ticketId: string;
+  commits: number;
+  prsCreated: number;
+  linesAdded: number;
+  linesRemoved: number;
+  filesChanged: number;
+  collectedAt: string;
+}
+
 // Dashboard types
 
 export interface DashboardSummary {

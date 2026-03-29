@@ -544,6 +544,7 @@ fn main() {
             commands::next_steps::create_pull_request,
             commands::next_steps::get_branch_diff,
             commands::next_steps::get_branch_diff_files,
+            commands::next_steps::get_ticket_git_stats,
             commands::next_steps::get_workspace_branch_status,
             // Workspace commands
             commands::workspaces::get_workspaces,

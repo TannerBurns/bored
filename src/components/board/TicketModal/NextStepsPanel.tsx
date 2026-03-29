@@ -2,8 +2,12 @@ import { useState, useEffect, useCallback } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { FileDiffViewer } from '../../common/FileDiffViewer';
 import { ProjectBranchRow } from './ProjectBranchRow';
-import { getWorkspaceBranchStatus } from '../../../lib/tauri';
-import type { Ticket, Column, FileDiff, ProjectBranchStatus } from '../../../types';
+import { getWorkspaceBranchStatus, getTicketGitStats } from '../../../lib/tauri';
+import type { Ticket, Column, FileDiff, ProjectBranchStatus, TicketGitStats } from '../../../types';
+
+function hasNonZeroStats(s: TicketGitStats): boolean {
+  return s.linesAdded > 0 || s.linesRemoved > 0 || s.filesChanged > 0;
+}
 
 interface NextStepsPanelProps {
   ticket: Ticket;
@@ -21,6 +25,7 @@ export function NextStepsPanel({ ticket, columns }: NextStepsPanelProps) {
   const [diffLoading, setDiffLoading] = useState(false);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [branchStatus, setBranchStatus] = useState<ProjectBranchStatus[] | null>(null);
+  const [storedStats, setStoredStats] = useState<TicketGitStats | null>(null);
 
   useEffect(() => {
     if (!diffFullscreen) return;
@@ -44,18 +49,34 @@ export function NextStepsPanel({ ticket, columns }: NextStepsPanelProps) {
     if (!shouldShow) return;
     let cancelled = false;
     const load = async () => {
+      setDiffLoading(true);
+      setStoredStats(null);
       try {
-        setDiffLoading(true);
         const status = await getWorkspaceBranchStatus(ticket.id);
         if (!cancelled) {
           setBranchStatus(status);
-          if (!ticket.workspaceId) {
+
+          const allEmpty = status.every((s) => !s.hasChanges);
+          if (allEmpty) {
+            const saved = await getTicketGitStats(ticket.id);
+            if (!cancelled && saved && hasNonZeroStats(saved)) {
+              setStoredStats(saved);
+            }
+          }
+
+          if (!ticket.workspaceId && !allEmpty) {
             const files = await invoke<FileDiff[]>('get_branch_diff_files', { ticketId: ticket.id });
             if (!cancelled) setDiffFiles(files);
           }
         }
       } catch (e) {
-        if (!cancelled) setDiffError(String(e));
+        if (!cancelled) {
+          setDiffError(String(e));
+          const saved = await getTicketGitStats(ticket.id).catch(() => null);
+          if (!cancelled && saved && hasNonZeroStats(saved)) {
+            setStoredStats(saved);
+          }
+        }
       } finally {
         if (!cancelled) setDiffLoading(false);
       }
@@ -63,6 +84,9 @@ export function NextStepsPanel({ ticket, columns }: NextStepsPanelProps) {
     void load();
     return () => { cancelled = true; };
   }, [ticket.id, ticket.workspaceId, ticket.projectId, ticket.branchName, shouldShow]);
+
+  const liveHasChanges = branchStatus?.some((s) => s.hasChanges) ?? false;
+  const showStoredFallback = !liveHasChanges && storedStats !== null;
 
   const handleRequestFullscreen = useCallback((projectName: string, files: FileDiff[] | null) => {
     setFullscreenProjectName(projectName);
@@ -91,7 +115,30 @@ export function NextStepsPanel({ ticket, columns }: NextStepsPanelProps) {
         The agent has committed changes to branch <code className="text-board-text-secondary">{ticket.branchName}</code>.
       </p>
 
-      {branchStatus && branchStatus.length > 0 && (
+      {showStoredFallback && storedStats && (
+        <div className="rounded-lg border border-board-border overflow-hidden bg-board-bg/30">
+          <div className="flex items-center gap-2 px-3 py-2">
+            <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 text-board-text-muted">
+              <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
+            </svg>
+            <span className="flex items-center gap-1.5 text-[10px]">
+              <span className="text-emerald-400">+{storedStats.linesAdded}</span>
+              <span className="text-red-400">-{storedStats.linesRemoved}</span>
+              <span className="text-board-text-muted">
+                ({storedStats.filesChanged} file{storedStats.filesChanged !== 1 ? 's' : ''})
+              </span>
+              {storedStats.commits > 0 && (
+                <span className="text-board-text-muted">
+                  &middot; {storedStats.commits} commit{storedStats.commits !== 1 ? 's' : ''}
+                </span>
+              )}
+            </span>
+            <span className="text-[10px] text-board-text-muted ml-auto">Branch merged</span>
+          </div>
+        </div>
+      )}
+
+      {!showStoredFallback && branchStatus && branchStatus.length > 0 && (
         <div className="space-y-2">
           {branchStatus.map((ps, idx) => (
             <ProjectBranchRow

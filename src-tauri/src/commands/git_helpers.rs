@@ -827,4 +827,33 @@ mod tests {
         let result = assert_not_on_protected_branch("/nonexistent/path");
         assert!(result.is_ok(), "should pass when branch cannot be determined");
     }
+
+    // --- create_pr_for_project ---
+
+    #[test]
+    fn create_pr_refuses_protected_branch_name() {
+        let result = create_pr_for_project("/some/path", "main", "title", "PR", "body");
+        assert!(!result.success);
+        assert!(result.url.is_none());
+        assert!(result.message.contains("REFUSED"), "should mention REFUSED: {}", result.message);
+        assert!(result.message.contains("protected branch"), "should mention protected branch: {}", result.message);
+
+        let result2 = create_pr_for_project("/some/path", "master", "title", "PR", "body");
+        assert!(!result2.success);
+        assert!(result2.message.contains("REFUSED"));
+    }
+
+    #[test]
+    fn create_pr_refuses_auto_commit_on_protected_working_dir() {
+        let (dir, path) = init_temp_repo();
+        std::fs::write(dir.path().join("dirty.txt"), "uncommitted").unwrap();
+
+        let result = create_pr_for_project(&path, "feat/test", "title", "PR", "body");
+        assert!(!result.success);
+        assert!(
+            result.message.contains("cannot auto-commit"),
+            "should mention cannot auto-commit: {}", result.message
+        );
+        assert!(has_uncommitted_changes(&path), "changes should still be uncommitted");
+    }
 }

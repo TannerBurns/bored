@@ -484,6 +484,14 @@ pub async fn get_branch_diff(
 }
 
 #[tauri::command]
+pub async fn get_ticket_git_stats(
+    ticket_id: String,
+    db: State<'_, Arc<Database>>,
+) -> Result<Option<crate::db::git_stats::TicketGitStats>, String> {
+    db.get_ticket_git_stats(&ticket_id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 pub async fn get_workspace_branch_status(
     ticket_id: String,
     db: State<'_, Arc<Database>>,
