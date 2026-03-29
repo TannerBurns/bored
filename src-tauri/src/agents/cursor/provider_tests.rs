@@ -148,6 +148,15 @@ fn available_models_empty_when_no_models_injected() {
     assert!(p.available_models().is_empty());
 }
 
+#[test]
+fn available_models_empty_before_discovery() {
+    let p = CursorProvider::new();
+    assert!(
+        p.available_models().is_empty(),
+        "models should be empty before discover_models is called"
+    );
+}
+
 // ── session continuation tests ────────────────────────────────
 
 #[test]

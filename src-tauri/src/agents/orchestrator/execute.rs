@@ -4,9 +4,9 @@ use super::auto_pilot;
 use super::config::{TodoItemStatus, WorkflowMode};
 use super::WorkflowOrchestrator;
 use crate::agents::prompt::{
-    generate_command_prompt, generate_implement_prompt, generate_plan_prompt,
-    generate_task_implement_prompt, generate_task_plan_prompt, generate_task_prompt,
-    generate_todo_implement_prompt,
+    build_code_review_ticket_context, generate_command_prompt, generate_implement_prompt,
+    generate_plan_prompt, generate_task_implement_prompt, generate_task_plan_prompt,
+    generate_task_prompt, generate_todo_implement_prompt,
 };
 use crate::db::models::TaskType;
 
@@ -646,11 +646,14 @@ impl WorkflowOrchestrator {
         let custom_dir = self.custom_commands_dir();
         let base_prompt = generate_command_prompt(cmd, custom_dir.as_deref());
 
+        let ticket_context = build_code_review_ticket_context(&self.ticket);
+        let branch_context = self.build_code_review_branch_context();
+        let contextual_prompt = format!("{}{}{}", ticket_context, branch_context, base_prompt);
+
         if self.ticket.workspace_id.is_some() {
-            self.run_workspace_commit_stage(cmd, &base_prompt).await?;
+            self.run_workspace_commit_stage(cmd, &contextual_prompt).await?;
         } else {
-            let prompt = self.append_workspace_context_to_prompt(&base_prompt);
-            self.run_stage(cmd, &prompt).await?;
+            self.run_stage(cmd, &contextual_prompt).await?;
         }
 
         Ok(())
@@ -671,8 +674,7 @@ impl WorkflowOrchestrator {
         let workspace_id = match self.ticket.workspace_id.as_ref() {
             Some(id) => id,
             None => {
-                let prompt = self.append_workspace_context_to_prompt(base_prompt);
-                self.run_stage(cmd, &prompt).await?;
+                self.run_stage(cmd, base_prompt).await?;
                 return Ok(());
             }
         };
@@ -688,8 +690,7 @@ impl WorkflowOrchestrator {
         let branch = match current_branch.as_deref() {
             Some(b) if !b.is_empty() => b,
             _ => {
-                let prompt = self.append_workspace_context_to_prompt(base_prompt);
-                self.run_stage(cmd, &prompt).await?;
+                self.run_stage(cmd, base_prompt).await?;
                 return Ok(());
             }
         };
@@ -714,8 +715,7 @@ impl WorkflowOrchestrator {
             }
         }
 
-        let prompt = self.append_workspace_context_to_prompt(base_prompt);
-        self.run_stage(cmd, &prompt).await?;
+        self.run_stage(cmd, base_prompt).await?;
 
         for (project_name, working_dir) in &secondary_dirs {
 

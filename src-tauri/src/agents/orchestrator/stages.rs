@@ -516,11 +516,11 @@ impl WorkflowOrchestrator {
         }
     }
 
-    /// Build a branch-information section for the code-review prompt.
-    /// For single-repo tickets this is just the branch and base branch.
-    /// For workspace tickets it also lists each project's worktree directory
-    /// so the reviewer can `cd` in and run `git diff` themselves.
-    fn build_code_review_branch_context(&self) -> String {
+    /// Build a branch-information section for stage prompts (code-review,
+    /// add-and-commit, etc.). For single-repo tickets this is just the branch
+    /// and base branch. For workspace tickets it also lists each project's
+    /// worktree directory so the agent can `cd` into them.
+    pub(super) fn build_code_review_branch_context(&self) -> String {
         let current_branch = self.db.get_ticket(&self.ticket.id)
             .ok()
             .and_then(|t| t.branch_name)
@@ -546,10 +546,18 @@ impl WorkflowOrchestrator {
                 if projects.len() > 1 {
                     ctx.push_str("\n### Projects\n\n");
                     for p in &projects {
-                        let worktree_path = crate::commands::next_steps::resolve_working_dir_strict(
+                        let worktree_path = match crate::commands::next_steps::resolve_working_dir_strict(
                             &p.path, branch,
-                        )
-                        .unwrap_or_else(|_| p.path.clone());
+                        ) {
+                            Ok(resolved) => resolved,
+                            Err(_) => {
+                                tracing::warn!(
+                                    "No worktree found for project '{}', excluding from code review branch context",
+                                    p.name
+                                );
+                                continue;
+                            }
+                        };
                         ctx.push_str(&format!("- **{}** — `{}`\n", p.name, worktree_path));
                     }
                     ctx.push_str(

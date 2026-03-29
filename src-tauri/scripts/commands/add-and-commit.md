@@ -1,6 +1,8 @@
 # Add + Commit (apply code changes and create the commit)
 
-You are a senior engineer. Add the requested change(s), run checks, stage the correct files, and create the commit with a detailed message that matches repo conventions.
+You are a senior engineer. Stage the correct files, run checks, and create the commit with a detailed message that matches repo conventions.
+
+The **Ticket Intent** and **Branch Information** sections above describe the goal of these changes and where the work was done. Use them to understand scope and then inspect the repo yourself to determine what needs to be staged and committed.
 
 IMPORTANT:
 - This command must be fully actionable end-to-end: it should result in a new commit.
@@ -18,11 +20,9 @@ IMPORTANT:
 ---
 
 ## Step 1 — Understand repo + current state
-Run:
+Review the ticket intent and branch information provided above. Then inspect the repo:
 - `git status --porcelain`
-- `git branch --show-current`
-- `git remote -v`
-- `git log -10 --oneline --decorate`
+- `git log -5 --oneline --decorate`
 
 Detect tooling:
 - Check for `Makefile` / `Justfile`
