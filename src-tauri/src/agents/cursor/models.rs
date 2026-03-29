@@ -1,6 +1,9 @@
 //! Parse the output of `cursor agent --list-models` into structured model data.
 
-use std::process::Command;
+use std::process::{Command, Stdio};
+use std::time::{Duration, Instant};
+
+const LIST_MODELS_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// A single model entry from the Cursor CLI.
 #[derive(Debug, Clone, serde::Serialize)]
@@ -22,11 +25,36 @@ pub struct CursorModelList {
 }
 
 /// Run `cursor agent --list-models` and parse the output.
+///
+/// Applies a 5-second timeout so a hanging CLI doesn't block app startup.
 pub fn list_models() -> Result<CursorModelList, String> {
-    let output = Command::new("cursor")
+    let mut child = Command::new("cursor")
         .args(["agent", "--list-models"])
-        .output()
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
         .map_err(|e| format!("Failed to run `cursor agent --list-models`: {e}"))?;
+
+    let start = Instant::now();
+    loop {
+        match child.try_wait() {
+            Ok(Some(_)) => break,
+            Ok(None) if start.elapsed() > LIST_MODELS_TIMEOUT => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(format!(
+                    "`cursor agent --list-models` timed out after {}s",
+                    LIST_MODELS_TIMEOUT.as_secs()
+                ));
+            }
+            Ok(None) => std::thread::sleep(Duration::from_millis(50)),
+            Err(e) => return Err(format!("Failed waiting for cursor process: {e}")),
+        }
+    }
+
+    let output = child
+        .wait_with_output()
+        .map_err(|e| format!("Failed to read cursor output: {e}"))?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
