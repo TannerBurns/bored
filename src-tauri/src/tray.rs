@@ -24,8 +24,19 @@ fn truncate_title(title: &str, max: usize) -> String {
 }
 
 pub fn setup_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
-    let db = app.state::<Arc<Database>>();
-    let menu = build_tray_menu(app.handle(), &db)?;
+    setup_tray_inner(app.handle())
+}
+
+/// Variant that accepts `AppHandle` so it can be called from a background
+/// task after setup() returns (the `&App` reference is only available
+/// inside the setup closure).
+pub fn setup_tray_deferred(handle: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
+    setup_tray_inner(handle)
+}
+
+fn setup_tray_inner(handle: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
+    let db = handle.state::<Arc<Database>>();
+    let menu = build_tray_menu(handle, &db)?;
     let icon = Image::from_bytes(TRAY_ICON_BYTES)?;
 
     TrayIconBuilder::with_id(TRAY_ID)
@@ -35,7 +46,7 @@ pub fn setup_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         .show_menu_on_left_click(true)
         .on_menu_event(handle_menu_event)
         .tooltip("Bored")
-        .build(app)?;
+        .build(handle)?;
 
     Ok(())
 }

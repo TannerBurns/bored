@@ -266,19 +266,13 @@ fn main() {
 
             tracing::info!("Main window created, continuing initialization...");
 
-            // Build the agent registry with all known providers
-            let mut agent_registry = AgentRegistry::new();
-            agent_registry.register(Arc::new(ClaudeProvider::new()));
-            let cursor_provider = tokio::task::block_in_place(|| {
-                let mut p = CursorProvider::new();
-                p.discover_models();
-                p
-            });
-            agent_registry.register(Arc::new(cursor_provider));
-            agent_registry.register(Arc::new(CodexProvider::new()));
+            // ── Phase 1: synchronous, fast (~100-200ms) ─────────────────
+            // Everything here must complete before setup() returns so that
+            // app.manage() state is available when Tauri commands are invoked.
 
             // One-time migration: copy data from the old "com.agent-kanban.app" directory
             // if it exists and the new database hasn't been populated yet.
+            // Must run before Database::open since it may copy the DB file.
             migrate_from_old_app_dir(&app_data_dir);
 
             let db_path = app_data_dir.join("bored.db");
@@ -286,7 +280,6 @@ fn main() {
                 Ok(db) => Arc::new(db),
                 Err(e) => {
                     tracing::error!("Failed to open database at {:?}: {}", db_path, e);
-                    // Provide detailed error message for common issues
                     let error_msg = match &e {
                         db::DbError::Migration(msg) => format!(
                             "Database migration failed. {}\n\nThe database file is at: {:?}\n\nYou may need to restore from a backup or delete the database to start fresh.",
@@ -302,24 +295,15 @@ fn main() {
                 }
             };
 
-            let db_for_cleanup = database.clone();
-            tauri::async_runtime::spawn(async move {
-                match db_for_cleanup.cleanup_orphaned_in_progress_tasks() {
-                    Ok(count) if count > 0 => {
-                        tracing::info!(
-                            "Startup cleanup: reset {} orphaned in-progress task(s)",
-                            count
-                        );
-                    }
-                    Err(e) => {
-                        tracing::warn!("Startup cleanup failed: {}", e);
-                    }
-                    _ => {}
-                }
-            });
+            // Build the agent registry with all providers (instant — no subprocess calls).
+            // CursorProvider starts with an empty model list; discovery runs in Phase 2.
+            let mut agent_registry = AgentRegistry::new();
+            agent_registry.register(Arc::new(ClaudeProvider::new()));
+            let cursor_provider = Arc::new(CursorProvider::new());
+            agent_registry.register(cursor_provider.clone());
+            agent_registry.register(Arc::new(CodexProvider::new()));
 
             app.manage(Arc::new(agent_registry));
-
             app.manage(database.clone());
             app.manage(RunningAgents::new());
             app.manage(commands::chat::RunningChatAgents::new());
@@ -335,11 +319,8 @@ fn main() {
             agent_settings.register_agent_settings_path("codex", codex_settings_path);
             app.manage(agent_settings);
 
-            // Workflow settings (synced from frontend, read by workers at task time)
             app.manage(WorkflowSettingsState::new());
 
-            // Configure API server with persistent token
-            // Try to read existing token from file, or generate a new one
             let token_path = app_data_dir.join("api_token");
             let api_token = if token_path.exists() {
                 match std::fs::read_to_string(&token_path) {
@@ -374,14 +355,41 @@ fn main() {
 
             let api_url = format!("http://127.0.0.1:{}", api_config.port);
 
-            // Create shared event channel for SSE broadcasting
             let event_tx = api::create_event_channel();
-
-            // Manage shared state for commands that need API/event access
             app.manage(event_tx.clone());
             app.manage(ApiConnState { url: api_url, port: api_config.port, token: api_token });
 
-            // Start API server with shared event channel
+            tracing::info!("Core initialization complete, spawning background tasks...");
+
+            // ── Phase 2: background tasks (non-blocking) ────────────────
+            // These run after setup() returns so the webview can render the
+            // "Loading workspace..." splash immediately.
+
+            // Cursor model discovery (up to 5s with timeout)
+            tauri::async_runtime::spawn(async move {
+                tokio::task::spawn_blocking(move || cursor_provider.discover_models())
+                    .await
+                    .ok();
+            });
+
+            // Orphaned task cleanup
+            let db_for_cleanup = database.clone();
+            tauri::async_runtime::spawn(async move {
+                match db_for_cleanup.cleanup_orphaned_in_progress_tasks() {
+                    Ok(count) if count > 0 => {
+                        tracing::info!(
+                            "Startup cleanup: reset {} orphaned in-progress task(s)",
+                            count
+                        );
+                    }
+                    Err(e) => {
+                        tracing::warn!("Startup cleanup failed: {}", e);
+                    }
+                    _ => {}
+                }
+            });
+
+            // API server
             let db_for_api = database.clone();
             let event_tx_for_api = event_tx;
             let api_config_clone = api_config.clone();
@@ -395,7 +403,6 @@ fn main() {
                 {
                     Ok(handle) => {
                         tracing::info!("API server started at {}", handle.addr);
-                        // Keep handle alive - server runs until app exits
                         std::mem::forget(handle);
                     }
                     Err(e) => {
@@ -404,9 +411,13 @@ fn main() {
                 }
             });
 
-            if let Err(e) = tray::setup_tray(app) {
-                tracing::error!("Failed to setup system tray: {}", e);
-            }
+            // System tray (DB query for recent tickets — non-essential for initial UI)
+            let tray_handle = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                if let Err(e) = tray::setup_tray_deferred(&tray_handle) {
+                    tracing::error!("Failed to setup system tray: {}", e);
+                }
+            });
 
             tracing::info!("Bored initialized successfully");
 

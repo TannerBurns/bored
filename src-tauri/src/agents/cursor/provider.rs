@@ -1,5 +1,7 @@
 //! Cursor `AgentProvider` implementation.
 
+use std::sync::OnceLock;
+
 use crate::agents::cli_utils;
 use crate::agents::cost::{self, RunCostData};
 use crate::agents::provider::{AgentProvider, AgentRunConfig};
@@ -10,36 +12,41 @@ use super::models;
 #[derive(Debug)]
 pub struct CursorProvider {
     /// Dynamically discovered (id, label) pairs from `cursor agent --list-models`.
-    models: Vec<(String, String)>,
+    /// Wrapped in `OnceLock` so discovery can run in a background task after
+    /// the provider is already registered and wrapped in `Arc`.
+    models: OnceLock<Vec<(String, String)>>,
 }
 
 impl CursorProvider {
     pub fn new() -> Self {
         Self {
-            models: Vec::new(),
+            models: OnceLock::new(),
         }
     }
 
     /// Create a provider pre-populated with discovered models.
     pub fn with_models(models: Vec<(String, String)>) -> Self {
-        Self { models }
+        let lock = OnceLock::new();
+        let _ = lock.set(models);
+        Self { models: lock }
     }
 
     /// Discover available models by running `cursor agent --list-models`.
     /// On failure (CLI not installed, timeout, etc.) logs a warning and
     /// leaves the model list empty.
-    pub fn discover_models(&mut self) {
+    ///
+    /// Takes `&self` (not `&mut self`) so it can be called through `Arc`
+    /// from a background task after registration.
+    pub fn discover_models(&self) {
         match models::list_models() {
             Ok(list) => {
-                self.models = list
+                let discovered: Vec<_> = list
                     .models
                     .into_iter()
                     .map(|m| (m.id, m.label))
                     .collect();
-                tracing::info!(
-                    "Discovered {} Cursor models",
-                    self.models.len(),
-                );
+                tracing::info!("Discovered {} Cursor models", discovered.len());
+                let _ = self.models.set(discovered);
             }
             Err(e) => {
                 tracing::warn!("Could not discover Cursor models: {e}");
@@ -116,9 +123,9 @@ impl AgentProvider for CursorProvider {
 
     fn available_models(&self) -> Vec<(&str, &str)> {
         self.models
-            .iter()
-            .map(|(id, label)| (id.as_str(), label.as_str()))
-            .collect()
+            .get()
+            .map(|m| m.iter().map(|(id, label)| (id.as_str(), label.as_str())).collect())
+            .unwrap_or_default()
     }
 
 }
