@@ -67,8 +67,10 @@ function extractBalancedJson(text: string): string | null {
     }
     if (ch === '"') { inString = true; continue; }
     if (ch === '{') depth++;
-    else if (ch === '}') depth--;
-    if (depth === 0) return text.slice(0, i + 1);
+    else if (ch === '}') {
+      depth--;
+      if (depth === 0) return text.slice(0, i + 1);
+    }
   }
   return null;
 }
