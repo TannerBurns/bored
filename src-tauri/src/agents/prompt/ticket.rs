@@ -158,6 +158,38 @@ The board will be automatically updated as you work.
     )
 }
 
+/// Build a lightweight ticket-intent section for code-review prompts.
+/// Includes the ticket's title, priority, labels, and description so the
+/// reviewer understands what the code changes are *supposed* to accomplish,
+/// without any workflow or implementation instructions.
+pub fn build_code_review_ticket_context(ticket: &Ticket) -> String {
+    let mut ctx = String::new();
+
+    ctx.push_str("## Ticket Intent\n\n");
+    ctx.push_str(&format!("**Title:** {}\n", ticket.title));
+
+    let priority_label = match ticket.priority {
+        Priority::Urgent => "Urgent",
+        Priority::High => "High",
+        Priority::Medium => "Medium",
+        Priority::Low => "Low",
+    };
+    ctx.push_str(&format!("**Priority:** {}\n", priority_label));
+
+    if !ticket.labels.is_empty() {
+        ctx.push_str(&format!("**Labels:** {}\n", ticket.labels.join(", ")));
+    }
+
+    if !ticket.description_md.is_empty() {
+        ctx.push_str("\n### Description\n\n");
+        ctx.push_str(&ticket.description_md);
+        ctx.push('\n');
+    }
+
+    ctx.push('\n');
+    ctx
+}
+
 /// Generate a prompt for the planning stage
 pub fn generate_plan_prompt(
     ticket: &Ticket,
@@ -749,6 +781,104 @@ mod tests {
         assert!(prompt.contains("Focus ONLY on this step"));
         assert!(prompt.contains("Do NOT work on other steps"));
         assert!(prompt.contains("Do NOT"));
+    }
+
+    #[test]
+    fn build_code_review_ticket_context_includes_title_and_priority() {
+        let ticket = create_test_ticket();
+        let ctx = build_code_review_ticket_context(&ticket);
+        assert!(ctx.contains("## Ticket Intent"));
+        assert!(ctx.contains("**Title:** Test Ticket"));
+        assert!(ctx.contains("**Priority:** Medium"));
+    }
+
+    #[test]
+    fn build_code_review_ticket_context_includes_labels() {
+        let ticket = create_test_ticket();
+        let ctx = build_code_review_ticket_context(&ticket);
+        assert!(ctx.contains("**Labels:** bug, urgent"));
+    }
+
+    #[test]
+    fn build_code_review_ticket_context_includes_description() {
+        let ticket = create_test_ticket();
+        let ctx = build_code_review_ticket_context(&ticket);
+        assert!(ctx.contains("### Description"));
+        assert!(ctx.contains("This is a test description."));
+    }
+
+    #[test]
+    fn build_code_review_ticket_context_omits_description_when_empty() {
+        let mut ticket = create_test_ticket();
+        ticket.description_md = String::new();
+        let ctx = build_code_review_ticket_context(&ticket);
+        assert!(!ctx.contains("### Description"));
+    }
+
+    #[test]
+    fn build_code_review_ticket_context_omits_labels_when_empty() {
+        let mut ticket = create_test_ticket();
+        ticket.labels = vec![];
+        let ctx = build_code_review_ticket_context(&ticket);
+        assert!(!ctx.contains("**Labels:**"));
+    }
+
+    #[test]
+    fn build_code_review_ticket_context_urgent_priority() {
+        let mut ticket = create_test_ticket();
+        ticket.priority = Priority::Urgent;
+        let ctx = build_code_review_ticket_context(&ticket);
+        assert!(ctx.contains("**Priority:** Urgent"));
+    }
+
+    #[test]
+    fn build_code_review_ticket_context_high_priority() {
+        let mut ticket = create_test_ticket();
+        ticket.priority = Priority::High;
+        let ctx = build_code_review_ticket_context(&ticket);
+        assert!(ctx.contains("**Priority:** High"));
+    }
+
+    #[test]
+    fn build_code_review_ticket_context_low_priority() {
+        let mut ticket = create_test_ticket();
+        ticket.priority = Priority::Low;
+        let ctx = build_code_review_ticket_context(&ticket);
+        assert!(ctx.contains("**Priority:** Low"));
+    }
+
+    #[test]
+    fn build_code_review_ticket_context_has_no_workflow_instructions() {
+        let ticket = create_test_ticket();
+        let ctx = build_code_review_ticket_context(&ticket);
+        assert!(!ctx.contains("## Workflow"));
+        assert!(!ctx.contains("## Instructions"));
+        assert!(!ctx.contains("Implementation Plan"));
+        assert!(!ctx.contains("Create a branch"));
+    }
+
+    #[test]
+    fn build_code_review_ticket_context_section_ordering() {
+        let ticket = create_test_ticket();
+        let ctx = build_code_review_ticket_context(&ticket);
+        let intent_pos = ctx.find("## Ticket Intent").unwrap();
+        let title_pos = ctx.find("**Title:**").unwrap();
+        let priority_pos = ctx.find("**Priority:**").unwrap();
+        let labels_pos = ctx.find("**Labels:**").unwrap();
+        let desc_pos = ctx.find("### Description").unwrap();
+        assert!(intent_pos < title_pos);
+        assert!(title_pos < priority_pos);
+        assert!(priority_pos < labels_pos);
+        assert!(labels_pos < desc_pos);
+    }
+
+    #[test]
+    fn build_code_review_ticket_context_single_label() {
+        let mut ticket = create_test_ticket();
+        ticket.labels = vec!["frontend".to_string()];
+        let ctx = build_code_review_ticket_context(&ticket);
+        assert!(ctx.contains("**Labels:** frontend"));
+        assert!(!ctx.contains(", "));
     }
 
     #[test]

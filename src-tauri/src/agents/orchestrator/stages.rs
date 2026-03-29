@@ -7,7 +7,7 @@ use tauri::Emitter;
 use super::code_review::{extract_issues_with_parsed, parse_code_review_issues, parse_structured_review};
 use super::config::StageEvent;
 use super::WorkflowOrchestrator;
-use crate::agents::prompt::generate_command_prompt;
+use crate::agents::prompt::{build_code_review_ticket_context, generate_command_prompt};
 use crate::agents::{AgentRunConfig, AgentRunResult};
 use crate::agents::{LogCallback, LogLine, LogStream, RunOutcome};
 use crate::db::{AgentEventPayload, CreateRun, EventType, NormalizedEvent, RunStatus};
@@ -516,6 +516,54 @@ impl WorkflowOrchestrator {
         }
     }
 
+    /// Build a branch-information section for the code-review prompt.
+    /// For single-repo tickets this is just the branch and base branch.
+    /// For workspace tickets it also lists each project's worktree directory
+    /// so the reviewer can `cd` in and run `git diff` themselves.
+    fn build_code_review_branch_context(&self) -> String {
+        let current_branch = self.db.get_ticket(&self.ticket.id)
+            .ok()
+            .and_then(|t| t.branch_name)
+            .or_else(|| self.worktree_branch.clone());
+
+        let branch = match current_branch.as_deref() {
+            Some(b) if !b.is_empty() => b,
+            _ => return String::new(),
+        };
+
+        let default_branch = crate::commands::next_steps::get_default_branch(
+            &self.repo_path.to_string_lossy(),
+        )
+        .unwrap_or_else(|_| "origin/main".to_string());
+
+        let mut ctx = String::new();
+        ctx.push_str("## Branch Information\n\n");
+        ctx.push_str(&format!("- **Branch:** `{}`\n", branch));
+        ctx.push_str(&format!("- **Base branch:** `{}`\n", default_branch));
+
+        if let Some(workspace_id) = self.ticket.workspace_id.as_ref() {
+            if let Ok(projects) = self.db.get_workspace_projects(workspace_id) {
+                if projects.len() > 1 {
+                    ctx.push_str("\n### Projects\n\n");
+                    for p in &projects {
+                        let worktree_path = crate::commands::next_steps::resolve_working_dir_strict(
+                            &p.path, branch,
+                        )
+                        .unwrap_or_else(|_| p.path.clone());
+                        ctx.push_str(&format!("- **{}** — `{}`\n", p.name, worktree_path));
+                    }
+                    ctx.push_str(
+                        "\nYou must review changes in ALL projects. `cd` into each \
+                         project directory above and run the git diff commands.\n",
+                    );
+                }
+            }
+        }
+
+        ctx.push('\n');
+        ctx
+    }
+
     /// Run the iterative code review loop using the model from stage_configs.
     pub(super) async fn run_code_review_loop(&self) -> Result<(), String> {
         let model = self.get_stage_model("code-review");
@@ -688,6 +736,7 @@ impl WorkflowOrchestrator {
         let timeout = timeout_override.unwrap_or(self.stage_timeout_secs);
         let retries = retries_override.unwrap_or(self.stage_max_retries);
         let custom_dir = self.custom_commands_dir();
+        let ticket_context = build_code_review_ticket_context(&self.ticket);
 
         for iteration in 1..=max_iterations {
             if self.is_cancelled() {
@@ -696,8 +745,11 @@ impl WorkflowOrchestrator {
 
             tracing::info!("Code review iteration {}/{}", iteration, display_max);
 
-            let base_prompt = generate_command_prompt("code-review", custom_dir.as_deref());
-            let review_prompt = self.append_workspace_context_to_prompt(&base_prompt);
+            let branch_context = self.build_code_review_branch_context();
+            let command_prompt = generate_command_prompt("code-review", custom_dir.as_deref());
+            let review_prompt = format!(
+                "{}{}{}", ticket_context, branch_context, command_prompt
+            );
 
             let review_result = self
                 .run_stage_with_overrides("code-review", &review_prompt, model, timeout, retries)
@@ -750,8 +802,8 @@ impl WorkflowOrchestrator {
                     let base_fix_prompt =
                         generate_command_prompt("code-review-fix", custom_dir.as_deref());
                     let fix_prompt = format!(
-                        "{}\n\n## Issues to Address\n\n{}",
-                        base_fix_prompt, issues_section
+                        "{}{}\n\n## Issues to Address\n\n{}",
+                        ticket_context, base_fix_prompt, issues_section
                     );
                     self.run_stage_with_overrides("code-review-fix", &fix_prompt, model, timeout, retries)
                         .await?;
@@ -766,8 +818,8 @@ impl WorkflowOrchestrator {
                     let base_fix_prompt =
                         generate_command_prompt("code-review-fix", custom_dir.as_deref());
                     let fix_prompt = format!(
-                        "{}\n\n## Issues to Address\n\n{}",
-                        base_fix_prompt, text
+                        "{}{}\n\n## Issues to Address\n\n{}",
+                        ticket_context, base_fix_prompt, text
                     );
                     self.run_stage_with_overrides("code-review-fix", &fix_prompt, model, timeout, retries)
                         .await?;

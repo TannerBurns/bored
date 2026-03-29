@@ -4,7 +4,9 @@ You are a senior engineer evaluating and fixing issues identified in the code re
 Goal: **Evaluate each issue** and fix those that warrant fixing, skip false positives.
 
 ## Context
-You have been given a list of issues found during code review. For each issue, you must:
+You have been given a list of issues found during code review. The **Ticket Intent** section from the review phase describes what these changes are supposed to accomplish — use it to judge whether an issue is relevant and whether a fix aligns with the ticket's goal.
+
+For each issue, you must:
 1. Evaluate if it's a real problem that needs fixing
 2. Decide whether to fix or skip
 3. Apply fixes for real issues
@@ -43,6 +45,7 @@ After making changes:
 - Data corruption risk
 - Missing error handling that could crash
 - Type safety issues that could cause undefined behavior
+- Incomplete implementation that doesn't fulfill the ticket intent
 
 **SKIP when:**
 - False positive (the code is actually correct)
