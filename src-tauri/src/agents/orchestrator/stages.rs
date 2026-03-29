@@ -572,6 +572,13 @@ impl WorkflowOrchestrator {
         ctx
     }
 
+    /// Build the ticket-intent + branch-info prefix used by all command stages.
+    pub(super) fn build_stage_context_prefix(&self) -> String {
+        let ticket_context = build_code_review_ticket_context(&self.ticket);
+        let branch_context = self.build_code_review_branch_context();
+        format!("{}{}", ticket_context, branch_context)
+    }
+
     /// Run the iterative code review loop using the model from stage_configs.
     pub(super) async fn run_code_review_loop(&self) -> Result<(), String> {
         let model = self.get_stage_model("code-review");
@@ -596,124 +603,6 @@ impl WorkflowOrchestrator {
             None,
         )
         .await
-    }
-
-    /// For workspace tickets, append the combined workspace diff context to a prompt.
-    pub(super) fn append_workspace_context_to_prompt(&self, prompt: &str) -> String {
-        match self.build_workspace_diff_context() {
-            Some(ws_context) => format!(
-                "{}\n\n{}\n\n\
-                 IMPORTANT: The git commands above will only show changes for the primary \
-                 project. This ticket spans multiple projects in a workspace. The full \
-                 workspace diff is provided above — use it to see changes in ALL projects. \
-                 You can also access other project directories via `--add-dir` paths.",
-                prompt, ws_context
-            ),
-            None => prompt.to_string(),
-        }
-    }
-
-    /// Build diff context using the orchestrator's known worktree paths
-    /// (repo_path + workspace_paths) rather than re-resolving from the DB via
-    /// get_ticket_working_dirs, which can fall back to main checkout paths.
-    fn build_workspace_diff_context(&self) -> Option<String> {
-        let workspace_id = self.ticket.workspace_id.as_ref()?;
-        if self.workspace_paths.is_empty() {
-            return None;
-        }
-
-        // Re-read from DB since self.ticket is a snapshot that won't reflect
-        // branch names set during the branch stage of the current run.
-        let current_branch = self.db.get_ticket(&self.ticket.id)
-            .ok()
-            .and_then(|t| t.branch_name)
-            .or_else(|| self.worktree_branch.clone());
-        let branch = match current_branch.as_deref() {
-            Some(b) if !b.is_empty() => b,
-            _ => return None,
-        };
-
-        let projects = self.db.get_workspace_projects(workspace_id).ok()?;
-        if projects.len() < 2 {
-            return None;
-        }
-
-        // Build (project_name, worktree_path) pairs from the orchestrator's
-        // already-resolved paths. The primary project maps to repo_path;
-        // secondary projects map to workspace_paths entries by matching
-        // via resolve_working_dir_strict.
-        let mut dir_pairs: Vec<(String, String)> = Vec::new();
-        for project in &projects {
-            let worktree_dir = match crate::commands::next_steps::resolve_working_dir_strict(&project.path, branch) {
-                Ok(resolved) => resolved,
-                Err(_) => {
-                    tracing::warn!(
-                        "No worktree found for project '{}', excluding from diff context",
-                        project.name
-                    );
-                    continue;
-                }
-            };
-            dir_pairs.push((project.name.clone(), worktree_dir));
-        }
-
-        if dir_pairs.is_empty() {
-            return None;
-        }
-
-        let mut sections = Vec::new();
-        for (project_name, working_dir) in &dir_pairs {
-            let default_branch = crate::commands::next_steps::get_default_branch(working_dir)
-                .unwrap_or_else(|_| "origin/main".to_string());
-
-            let stat = std::process::Command::new("git")
-                .args(["diff", "--stat", &format!("{}...{}", default_branch, branch)])
-                .current_dir(working_dir)
-                .output();
-
-            let diff = std::process::Command::new("git")
-                .args(["diff", &format!("{}...{}", default_branch, branch)])
-                .current_dir(working_dir)
-                .output();
-
-            let stat_text = stat
-                .as_ref()
-                .ok()
-                .filter(|o| o.status.success())
-                .map(|o| String::from_utf8_lossy(&o.stdout).to_string())
-                .unwrap_or_default();
-
-            let diff_text = diff
-                .as_ref()
-                .ok()
-                .filter(|o| o.status.success())
-                .map(|o| String::from_utf8_lossy(&o.stdout).to_string())
-                .unwrap_or_default();
-
-            if !diff_text.trim().is_empty() {
-                sections.push(format!(
-                    "### Project: {}\n\nWorking directory: `{}`\n\n```\n{}\n```\n\nFull diff:\n```diff\n{}\n```",
-                    project_name, working_dir, stat_text.trim(), diff_text.trim()
-                ));
-            } else {
-                sections.push(format!(
-                    "### Project: {}\n\nNo changes on this branch.",
-                    project_name
-                ));
-            }
-        }
-
-        if sections.iter().all(|s| s.contains("No changes")) {
-            return None;
-        }
-
-        Some(format!(
-            "## Workspace Change Set\n\n\
-             This ticket spans multiple projects in a workspace. Below is the combined \
-             diff across all projects. You MUST review changes in ALL projects, not just \
-             the primary working directory.\n\n{}",
-            sections.join("\n\n---\n\n")
-        ))
     }
 
     async fn run_code_review_loop_inner(
