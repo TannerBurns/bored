@@ -15,7 +15,7 @@ pub use task::{
     generate_workspace_task_context,
 };
 pub use ticket::{
-    build_code_review_ticket_context, generate_custom_prompt, generate_implement_prompt,
+    build_ticket_context, generate_custom_prompt, generate_implement_prompt,
     generate_plan_decomposition_prompt, generate_plan_prompt,
     generate_ticket_prompt, generate_ticket_prompt_full, generate_ticket_prompt_with_workflow,
     generate_todo_implement_prompt, generate_workspace_context,

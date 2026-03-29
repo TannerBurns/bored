@@ -7,7 +7,7 @@ use tauri::Emitter;
 use super::code_review::{extract_issues_with_parsed, parse_code_review_issues, parse_structured_review};
 use super::config::StageEvent;
 use super::WorkflowOrchestrator;
-use crate::agents::prompt::{build_code_review_ticket_context, generate_command_prompt};
+use crate::agents::prompt::{build_ticket_context, generate_command_prompt};
 use crate::agents::{AgentRunConfig, AgentRunResult};
 use crate::agents::{LogCallback, LogLine, LogStream, RunOutcome};
 use crate::db::{AgentEventPayload, CreateRun, EventType, NormalizedEvent, RunStatus};
@@ -516,11 +516,11 @@ impl WorkflowOrchestrator {
         }
     }
 
-    /// Build a branch-information section for stage prompts (code-review,
-    /// add-and-commit, etc.). For single-repo tickets this is just the branch
-    /// and base branch. For workspace tickets it also lists each project's
-    /// worktree directory so the agent can `cd` into them.
-    pub(super) fn build_code_review_branch_context(&self) -> String {
+    /// Build a branch-information section for stage prompts. For single-repo
+    /// tickets this is just the branch and base branch. For workspace tickets
+    /// it also lists each project's worktree directory so the agent can `cd`
+    /// into them.
+    pub(super) fn build_branch_context(&self) -> String {
         let current_branch = self.db.get_ticket(&self.ticket.id)
             .ok()
             .and_then(|t| t.branch_name)
@@ -574,8 +574,8 @@ impl WorkflowOrchestrator {
 
     /// Build the ticket-intent + branch-info prefix used by all command stages.
     pub(super) fn build_stage_context_prefix(&self) -> String {
-        let ticket_context = build_code_review_ticket_context(&self.ticket);
-        let branch_context = self.build_code_review_branch_context();
+        let ticket_context = build_ticket_context(&self.ticket);
+        let branch_context = self.build_branch_context();
         format!("{}{}", ticket_context, branch_context)
     }
 
@@ -633,7 +633,7 @@ impl WorkflowOrchestrator {
         let timeout = timeout_override.unwrap_or(self.stage_timeout_secs);
         let retries = retries_override.unwrap_or(self.stage_max_retries);
         let custom_dir = self.custom_commands_dir();
-        let ticket_context = build_code_review_ticket_context(&self.ticket);
+        let ticket_context = build_ticket_context(&self.ticket);
 
         for iteration in 1..=max_iterations {
             if self.is_cancelled() {
@@ -642,10 +642,9 @@ impl WorkflowOrchestrator {
 
             tracing::info!("Code review iteration {}/{}", iteration, display_max);
 
-            let branch_context = self.build_code_review_branch_context();
             let command_prompt = generate_command_prompt("code-review", custom_dir.as_deref());
             let review_prompt = format!(
-                "{}{}{}", ticket_context, branch_context, command_prompt
+                "{}{}", self.build_stage_context_prefix(), command_prompt
             );
 
             let review_result = self
