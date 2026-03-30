@@ -39,7 +39,7 @@ export interface TicketDetailViewProps {
   onMoveTicket: (ticketId: string, newColumnId: string) => void | Promise<void>;
   onAddComment: (ticketId: string, body: string) => Promise<void>;
   onUpdateComment: (commentId: string, body: string) => Promise<void>;
-  onRunWithAgent?: (ticketId: string, agentType: string, workflowMode?: string) => void;
+  onRunWithAgent?: (ticketId: string, agentType: string, workflowMode?: string) => Promise<string | undefined>;
   onNavigateToChat?: () => void;
   onDelete?: (ticketId: string) => Promise<void>;
   onAgentComplete?: (runId: string, status: string) => void;
@@ -116,6 +116,15 @@ export function TicketDetailView({
       logger.error('Failed to create validation chat:', e);
     }
   }, [ticket, createChat, selectChat, onNavigateToChat, onClose]);
+
+  const handleRunWithAgent = useCallback(async (ticketId: string, agentType: string, workflowMode?: string) => {
+    if (!onRunWithAgent) return undefined;
+    const error = await onRunWithAgent(ticketId, agentType, workflowMode);
+    if (error) {
+      agentEvents.setAgentError(error);
+    }
+    return error;
+  }, [onRunWithAgent, agentEvents.setAgentError]);
 
   // Auto-switch to Agent tab when a run starts
   useEffect(() => {
@@ -365,7 +374,7 @@ export function TicketDetailView({
             }
             onMoveTicket(ticket.id, newColumnId);
           }}
-          onRunWithAgent={onRunWithAgent}
+          onRunWithAgent={onRunWithAgent ? handleRunWithAgent : undefined}
           onValidateWithAgent={handleValidateWithAgent}
           onDelete={onDelete}
           onBack={onClose}

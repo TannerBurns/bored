@@ -276,6 +276,9 @@ export function useAgentEvents({
           completionHandledForRunRef.current = runId;
           logger.debug('Run completed (poll)', { status: currentRun.status });
           setIsAgentRunning(false);
+          if (currentRun.status === 'error') {
+            setAgentError(currentRun.summaryMd || 'Workflow failed');
+          }
           if (currentRun.status === 'finished' || currentRun.status === 'error' || currentRun.status === 'aborted' || currentRun.status === 'paused') {
             onAgentCompleteRef.current?.(runId, currentRun.status);
           }

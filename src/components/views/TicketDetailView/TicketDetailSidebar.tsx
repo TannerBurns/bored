@@ -15,7 +15,7 @@ interface TicketDetailSidebarProps {
   editState: UseTicketEditReturn;
   parentEpic: Ticket | null;
   onMoveTicket: (newColumnId: string) => void;
-  onRunWithAgent?: (ticketId: string, agentType: string, workflowMode?: string) => void;
+  onRunWithAgent?: (ticketId: string, agentType: string, workflowMode?: string) => Promise<string | undefined>;
   onValidateWithAgent?: (agentType: string) => void;
   onDelete?: (ticketId: string) => Promise<void>;
   onBack: () => void;
