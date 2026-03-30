@@ -2,6 +2,71 @@
 
 All notable changes to Bored are documented in this file.
 
+## [0.1.0-beta.65] - 2026-03-29
+
+Workspace worktree robustness, ticket-aware agent prompts, fast startup, and visible workflow errors. All workspace projects now share a single branch name and receive full worktree isolation — secondary project work can no longer be silently lost due to mismatched branch names, stale in-memory snapshots, or fallback to the main checkout path. Every agent command stage (code review, commit, cleanup, unit-tests, custom, etc.) now receives the ticket's title, description, priority, labels, branch name, base branch, and per-project worktree paths so the agent understands what it is working on. App startup time drops from 5+ seconds to ~100-200ms by deferring Cursor model discovery, orphaned task cleanup, API server, and tray setup to background tasks. Agent workflow errors (worktree setup failures, mid-execution errors) now surface immediately in the UI via error banners without requiring a page refresh.
+
+### New Features
+
+- Ticket intent and branch context for all agent stages — every command stage prompt now includes ticket title, priority, labels, description, branch name, base branch, and per-project worktree paths via `build_stage_context_prefix`, enabling agents to understand the task goal and explore diffs interactively
+- Code review completeness assessment — the code-review prompt gains a Completeness review category and references to the prepended Ticket Intent / Branch Information sections so the agent can evaluate whether changes fulfil the ticket's stated goal
+- Agent workflow error surfacing — `handleRunWithAgent` returns error strings, polling sets `agentError` on error status, and TicketModal/TicketDetailView show error banners immediately when workflows fail
+- Shared branch name for workspace projects — all projects in a workspace now use a single consistent branch name via `override_branch_name` in `WorktreeSetupContext`, ensuring downstream push, PR, diff, and review operations find every worktree
+
+### Improvements
+
+- Fast startup (~100-200ms) — Cursor model discovery, orphaned task cleanup, API server startup, and tray setup moved to background tasks; CursorProvider uses `OnceLock` for deferred model population; app window renders the "Loading workspace..." splash immediately
+- Per-project add-and-commit stage — secondary workspace worktrees use the full add-and-commit agent instead of basic auto-commit, with fallback to basic commit if the agent fails
+- UI-initiated runs now create worktrees for all workspace projects, not just the primary
+- Branch rename propagated to all secondary worktrees via `rename_workspace_secondary_branches`
+- Safety commit and cleanup on all workspace worktrees on error paths — both `orchestrate.rs` and `worker/mod.rs` iterate over secondary worktrees
+- Strict worktree resolution variant (`resolve_working_dir_strict`) returns `Err` instead of silently falling back to the main repo checkout
+- `run_stage_in_dir` refactored from 163 lines of duplicated retry/cost-tracking logic to a 4-line wrapper delegating to `run_stage_inner` via `dir_override`
+- Pre-computed workspace diffs removed from code-review and commit prompts — agents explore diffs themselves using branch and project path info
+- Removed dead `generate_system_prompt` function and all re-exports
+- Ticket builder JSON extraction uses balanced brace matching to handle markdown code blocks inside description values, with multiple fallback strategies
+
+### Bug Fixes
+
+- Fixed secondary workspace projects losing work because each got a different temp branch name — only the primary was renamed and tracked on the ticket
+- Fixed `get_ticket_working_dirs` silently falling back to main repo when secondary worktrees had mismatched branch names, making changes invisible to code review
+- Fixed error paths only cleaning up the primary worktree, abandoning secondaries with uncommitted work
+- Fixed secondary branch rename failures being swallowed — now returns `Result` and halts the workflow so the safety commit mechanism preserves work
+- Fixed worktree creation fallback passing main checkout paths as `--add-dir`, causing agents to write directly to the main branch checkout
+- Fixed `workspace_prompt_owned` and `build_workspace_diff_context` resolving to main checkout paths instead of worktree paths
+- Fixed chat workspace zip mismatch where excluding a middle project caused subsequent paths to pair with wrong project names
+- Fixed diff context falling back to primary worktree for secondary projects, producing duplicated or incorrect diff content
+- Fixed `workspace_prompt_owned` and `build_workspace_diff_context` reading stale in-memory `branch_name` (always None for new tickets) instead of re-reading from DB
+- Fixed agent workflow errors not displaying in UI when the Tauri command returns Err or the polling safety net misses the event
+
+### Testing
+
+- cargo clippy -- -D warnings: 0 warnings
+- cargo test: 2063 passed, 0 failed
+- 13 new unit tests for `find_worktree_for_branch`, `resolve_working_dir_strict`, and shared branch name logic
+- 11 unit tests for ticket context builder covering all field combinations
+- 7 new tests for `CursorProvider` OnceLock, `build_branch_context` branches
+- 4 integration tests for `build_stage_context_prefix` covering ordering, degradation, and content
+- 16 new TypeScript tests for `useAgentEvents` error polling and `useTicketHandlers` error propagation
+
+### Upgrading from Previous Versions
+
+If you are upgrading from a version older than beta.64, here is a summary of the major features introduced in recent releases:
+
+**beta.64 — Session-ID Extraction Fix & Full Shell Environment Inheritance**
+The `extract_session_id_from_stream_json` parser now requires `subtype == "init"` so that `hook_started` and `hook_response` system events are skipped, preventing the wrong session_id from being captured during `--resume` flows. The macOS/Linux environment bootstrap switches from `fix_path_env::fix()` (PATH only) to `fix_all_vars()`, ensuring API keys, custom variables, and other shell-profile configuration are available when the app is launched from Finder, Dock, or Spotlight.
+
+**beta.63 — Workspace Multi-Project Awareness**
+Workspace tickets now correctly push, create pull requests, collect diffs, and aggregate git stats across all projects instead of only the primary project. Agent prompts include a combined workspace diff so the code review agent sees changes in every repo. Secondary workspace worktrees are auto-committed after each orchestrator stage. The git helper layer has been extracted into a dedicated `git_helpers.rs` module, reducing `next_steps.rs` from 1,299 to 629 lines.
+
+**beta.62 — Debug Mode, Auto Code Review & Detour-Sync**
+A new per-provider Debug Mode toggle emits `bored_system` JSON log lines for every CLI subprocess invocation, showing the full command string in the log timeline as system entries with sensitive environment variables automatically filtered. A new "Run on Ticket Complete" setting triggers the code review loop automatically after the last task of a ticket finishes, using a dedicated `CodeReview` task type. The detour-sync stage merges agent work back to the target branch. Chat UX gains optimistic user message insertion and stale-chat guards.
+
+**beta.61 — Extended Context Model Suffix & Auto-Pilot Model Filtering**
+Claude Code extended context now uses the `[1m]` model suffix instead of the deprecated `--betas` flag, with eligibility gated to claude-opus-4-6 and claude-sonnet-4-6. The `--effort` CLI argument moves to the `CLAUDE_CODE_EFFORT_LEVEL` environment variable. Auto-pilot settings gain per-model enable/disable toggles so users can restrict which models the auto-pilot command selector can choose. The code-review fallback parser now accepts pass-status JSON where LLMs use `review_status` or `status` fields instead of `issues_found: 0`.
+
+---
+
 ## [0.1.0-beta.64] - 2026-03-27
 
 Session-ID extraction fix for Claude Code hooks and full shell environment inheritance for GUI-launched builds. The `extract_session_id_from_stream_json` parser now requires `subtype == "init"` so that `hook_started` and `hook_response` system events emitted before the init message are skipped, preventing the wrong session_id from being captured during `--resume` flows. The macOS/Linux environment bootstrap switches from `fix_path_env::fix()` (PATH only) to `fix_all_vars()`, ensuring API keys, custom variables, and other shell-profile configuration are available when the app is launched from Finder, Dock, or Spotlight.
