@@ -19,6 +19,7 @@ fn make_config() -> AgentRunConfig {
         workspace_file: None,
         workspace_paths: vec![],
         debug_mode: false,
+        allow_protected_branch: false,
     }
 }
 
@@ -145,6 +146,15 @@ fn available_models_returns_injected_models() {
 fn available_models_empty_when_no_models_injected() {
     let p = CursorProvider::with_models(vec![]);
     assert!(p.available_models().is_empty());
+}
+
+#[test]
+fn available_models_empty_before_discovery() {
+    let p = CursorProvider::new();
+    assert!(
+        p.available_models().is_empty(),
+        "models should be empty before discover_models is called"
+    );
 }
 
 // ── session continuation tests ────────────────────────────────

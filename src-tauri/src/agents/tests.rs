@@ -243,6 +243,7 @@ fn agent_run_config_basic_fields() {
         workspace_file: None,
         workspace_paths: vec![],
         debug_mode: false,
+        allow_protected_branch: false,
     };
     assert_eq!(config.agent_id, "claude");
     assert_eq!(config.ticket_id, "ticket-1");
@@ -271,6 +272,7 @@ fn agent_run_config_with_agent_config() {
         workspace_file: None,
         workspace_paths: vec![],
         debug_mode: false,
+        allow_protected_branch: false,
     };
     assert_eq!(
         config.agent_config.get("auth_token").and_then(|v| v.as_str()),
@@ -300,6 +302,7 @@ fn agent_run_config_empty_agent_config() {
         workspace_file: None,
         workspace_paths: vec![],
         debug_mode: false,
+        allow_protected_branch: false,
     };
     assert!(config.agent_config.is_empty());
     assert_eq!(config.agent_id, "cursor");
@@ -320,6 +323,7 @@ fn agent_run_config_with_session_id() {
         workspace_file: None,
         workspace_paths: vec![],
         debug_mode: false,
+        allow_protected_branch: false,
     };
     assert_eq!(config.session_id, Some("sess-abc-123".to_string()));
 }

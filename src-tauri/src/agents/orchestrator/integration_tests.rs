@@ -2781,3 +2781,172 @@ async fn run_stage_with_overrides_applies_custom_retry_count() {
     assert!(result.is_err(), "should fail with 0 retries");
     assert_eq!(call_count.load(Ordering::Relaxed), 1);
 }
+
+// ── build_branch_context ──────────────────────────
+
+#[test]
+fn branch_context_empty_when_no_branch() {
+    let db = create_test_db();
+    let ticket = seed_ticket(&db);
+    let run_id = seed_parent_run(&db, &ticket.id);
+    let settings = make_workflow_settings(false, true);
+
+    let mut cfg = make_config(db, ticket, run_id, settings);
+    cfg.worktree_branch = None;
+    let orch = WorkflowOrchestrator::new(cfg);
+    let ctx = orch.build_branch_context();
+    assert!(ctx.is_empty(), "should return empty when no branch is available");
+}
+
+#[test]
+fn branch_context_empty_when_branch_is_empty_string() {
+    let db = create_test_db();
+    let ticket = seed_ticket(&db);
+    let run_id = seed_parent_run(&db, &ticket.id);
+    let settings = make_workflow_settings(false, true);
+
+    let mut cfg = make_config(db, ticket, run_id, settings);
+    cfg.worktree_branch = Some(String::new());
+    let orch = WorkflowOrchestrator::new(cfg);
+    let ctx = orch.build_branch_context();
+    assert!(ctx.is_empty(), "should return empty for empty branch string");
+}
+
+#[test]
+fn branch_context_includes_branch_and_base() {
+    let db = create_test_db();
+    let ticket = seed_ticket(&db);
+    let run_id = seed_parent_run(&db, &ticket.id);
+    let settings = make_workflow_settings(false, true);
+
+    let orch = WorkflowOrchestrator::new(make_config(db, ticket, run_id, settings));
+    let ctx = orch.build_branch_context();
+    assert!(ctx.contains("## Branch Information"), "should contain header");
+    assert!(ctx.contains("test-branch"), "should contain the branch name");
+    assert!(ctx.contains("**Base branch:**"), "should contain base branch label");
+}
+
+#[test]
+fn branch_context_uses_ticket_db_branch_over_worktree_branch() {
+    let db = create_test_db();
+    let ticket = seed_ticket(&db);
+    let run_id = seed_parent_run(&db, &ticket.id);
+    let settings = make_workflow_settings(false, true);
+
+    db.set_ticket_branch(&ticket.id, "feat/from-db").unwrap();
+
+    let mut cfg = make_config(db, ticket, run_id, settings);
+    cfg.worktree_branch = Some("feat/from-config".to_string());
+    let orch = WorkflowOrchestrator::new(cfg);
+    let ctx = orch.build_branch_context();
+    assert!(
+        ctx.contains("feat/from-db"),
+        "should prefer DB branch over worktree_branch: {}",
+        ctx
+    );
+    assert!(
+        !ctx.contains("feat/from-config"),
+        "should not contain the worktree_branch fallback: {}",
+        ctx
+    );
+}
+
+#[test]
+fn branch_context_falls_back_to_worktree_branch() {
+    let db = create_test_db();
+    let ticket = seed_ticket(&db);
+    let run_id = seed_parent_run(&db, &ticket.id);
+    let settings = make_workflow_settings(false, true);
+
+    let mut cfg = make_config(db, ticket, run_id, settings);
+    cfg.worktree_branch = Some("feat/fallback-branch".to_string());
+    let orch = WorkflowOrchestrator::new(cfg);
+    let ctx = orch.build_branch_context();
+    assert!(
+        ctx.contains("feat/fallback-branch"),
+        "should use worktree_branch when ticket has no branch: {}",
+        ctx
+    );
+}
+
+#[test]
+fn branch_context_no_projects_section_for_non_workspace_ticket() {
+    let db = create_test_db();
+    let ticket = seed_ticket(&db);
+    let run_id = seed_parent_run(&db, &ticket.id);
+    let settings = make_workflow_settings(false, true);
+
+    let orch = WorkflowOrchestrator::new(make_config(db, ticket, run_id, settings));
+    let ctx = orch.build_branch_context();
+    assert!(
+        !ctx.contains("### Projects"),
+        "non-workspace ticket should not have Projects section: {}",
+        ctx
+    );
+}
+
+// ── build_stage_context_prefix ──────────────────────────
+
+#[test]
+fn stage_context_prefix_includes_ticket_and_branch() {
+    let db = create_test_db();
+    let ticket = seed_ticket(&db);
+    let run_id = seed_parent_run(&db, &ticket.id);
+    let settings = make_workflow_settings(false, true);
+
+    let orch = WorkflowOrchestrator::new(make_config(db, ticket, run_id, settings));
+    let prefix = orch.build_stage_context_prefix();
+    assert!(prefix.contains("## Ticket Intent"), "should contain ticket intent header");
+    assert!(prefix.contains("Test Ticket"), "should contain the ticket title");
+    assert!(prefix.contains("## Branch Information"), "should contain branch info header");
+    assert!(prefix.contains("test-branch"), "should contain the branch name");
+}
+
+#[test]
+fn stage_context_prefix_ticket_before_branch() {
+    let db = create_test_db();
+    let ticket = seed_ticket(&db);
+    let run_id = seed_parent_run(&db, &ticket.id);
+    let settings = make_workflow_settings(false, true);
+
+    let orch = WorkflowOrchestrator::new(make_config(db, ticket, run_id, settings));
+    let prefix = orch.build_stage_context_prefix();
+    let ticket_pos = prefix.find("## Ticket Intent").unwrap();
+    let branch_pos = prefix.find("## Branch Information").unwrap();
+    assert!(
+        ticket_pos < branch_pos,
+        "ticket context should appear before branch context"
+    );
+}
+
+#[test]
+fn stage_context_prefix_still_has_ticket_when_no_branch() {
+    let db = create_test_db();
+    let ticket = seed_ticket(&db);
+    let run_id = seed_parent_run(&db, &ticket.id);
+    let settings = make_workflow_settings(false, true);
+
+    let mut cfg = make_config(db, ticket, run_id, settings);
+    cfg.worktree_branch = None;
+    let orch = WorkflowOrchestrator::new(cfg);
+    let prefix = orch.build_stage_context_prefix();
+    assert!(prefix.contains("## Ticket Intent"), "should still include ticket context");
+    assert!(prefix.contains("Test Ticket"), "should still include ticket title");
+    assert!(!prefix.contains("## Branch Information"), "should not have branch info when no branch");
+}
+
+#[test]
+fn stage_context_prefix_includes_description() {
+    let db = create_test_db();
+    let ticket = seed_ticket(&db);
+    let run_id = seed_parent_run(&db, &ticket.id);
+    let settings = make_workflow_settings(false, true);
+
+    let orch = WorkflowOrchestrator::new(make_config(db, ticket, run_id, settings));
+    let prefix = orch.build_stage_context_prefix();
+    assert!(
+        prefix.contains("Do the thing"),
+        "should include ticket description: {}",
+        prefix
+    );
+}

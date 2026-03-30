@@ -71,13 +71,13 @@ export function useTicketHandlers({ tickets, setTickets, projects }: UseTicketHa
     await updateComment(commentId, body);
   };
 
-  const handleRunWithAgent = async (ticketId: string, agentType: string, workflowMode?: string) => {
+  const handleRunWithAgent = async (ticketId: string, agentType: string, workflowMode?: string): Promise<string | undefined> => {
     logger.debug('handleRunWithAgent called', { ticketId, agentType, workflowMode });
     
     const ticket = tickets.find(t => t.id === ticketId);
     if (!ticket) {
       logger.error('Ticket not found:', ticketId);
-      return;
+      return 'Ticket not found';
     }
     
     let projectPath: string;
@@ -85,19 +85,19 @@ export function useTicketHandlers({ tickets, setTickets, projects }: UseTicketHa
       const project = projects.find(p => p.id === ticket.projectId);
       if (!project) {
         logger.error('Project not found:', ticket.projectId);
-        return;
+        return 'Project not found';
       }
       projectPath = project.path;
     } else if (ticket.workspaceId) {
       const wsProjects = await getWorkspaceProjects(ticket.workspaceId);
       if (wsProjects.length === 0) {
         logger.error('Workspace has no projects:', ticket.workspaceId);
-        return;
+        return 'Workspace has no projects';
       }
       projectPath = wsProjects[0].path;
     } else {
       logger.error('Ticket has no projectId or workspaceId:', ticketId);
-      return;
+      return 'Ticket has no project or workspace assigned';
     }
     
     logger.debug('Starting agent with project path', { path: projectPath });
@@ -128,8 +128,10 @@ export function useTicketHandlers({ tickets, setTickets, projects }: UseTicketHa
       
       await storeUpdateTicket(ticketId, updates);
       logger.debug('Ticket updated, modal should now show agent running');
+      return undefined;
     } catch (err) {
       logger.error('Failed to start agent:', err);
+      return err instanceof Error ? err.message : String(err);
     }
   };
 

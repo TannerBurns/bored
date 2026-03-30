@@ -19,6 +19,7 @@ vi.mock('./ProjectBranchRow', () => ({
 
 vi.mock('../../../lib/tauri', () => ({
   getWorkspaceBranchStatus: vi.fn().mockResolvedValue([]),
+  getTicketGitStats: vi.fn().mockResolvedValue(null),
 }));
 
 function makeColumns(): Column[] {

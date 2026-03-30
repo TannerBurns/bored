@@ -48,4 +48,15 @@ mod tests {
         let err = SpawnError::SpawnFailed(io_err);
         assert!(err.to_string().contains("Failed to spawn process"));
     }
+
+    #[test]
+    fn spawn_error_protected_branch_message() {
+        let err = SpawnError::ProtectedBranch(
+            "REFUSED: agent CWD '/repo' is on protected branch 'main'.".to_string(),
+        );
+        let msg = err.to_string();
+        assert!(msg.contains("Protected branch:"), "display should include prefix: {}", msg);
+        assert!(msg.contains("REFUSED"), "display should include detail: {}", msg);
+        assert!(msg.contains("main"), "display should include branch name: {}", msg);
+    }
 }

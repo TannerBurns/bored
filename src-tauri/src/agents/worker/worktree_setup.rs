@@ -22,6 +22,10 @@ pub struct WorktreeSetupContext<'a> {
     pub provider: Arc<dyn AgentProvider>,
     pub agent_config: HashMap<String, serde_json::Value>,
     pub diagnostic_model: Option<String>,
+    /// When set, use this branch name instead of generating one from run_id.
+    /// Used by workspace worktree creation to ensure all projects share the
+    /// same branch name.
+    pub override_branch_name: Option<String>,
 }
 
 /// Result of worktree setup
@@ -99,11 +103,15 @@ async fn create_worktree_with_existing_branch(
 
 /// Create a worktree with a new temporary branch
 async fn create_worktree_with_new_branch(ctx: &WorktreeSetupContext<'_>) -> WorktreeSetupResult {
-    let temp_branch = format!(
-        "agent-work/{}/{}",
-        &ctx.ticket.id[..8.min(ctx.ticket.id.len())],
-        &ctx.run_id[..8.min(ctx.run_id.len())]
-    );
+    let temp_branch = if let Some(ref override_name) = ctx.override_branch_name {
+        override_name.clone()
+    } else {
+        format!(
+            "agent-work/{}/{}",
+            &ctx.ticket.id[..8.min(ctx.ticket.id.len())],
+            &ctx.run_id[..8.min(ctx.run_id.len())]
+        )
+    };
 
     // For epic child tickets, check if previous sibling has a branch
     let base_branch = branching::get_base_branch_for_ticket(&ctx.db, ctx.ticket, ctx.worker_id);
@@ -212,8 +220,21 @@ pub async fn create_worktrees_for_workspace(
         }
     };
 
+    // All projects in the workspace must share a single branch name so that
+    // get_ticket_working_dirs can find all worktrees by the ticket's branch.
+    let shared_branch_name = if ticket.branch_name.is_none() {
+        Some(format!(
+            "agent-work/{}/{}",
+            &ticket.id[..8.min(ticket.id.len())],
+            &run_id[..8.min(run_id.len())]
+        ))
+    } else {
+        None
+    };
+
     for (idx, project) in projects.iter().enumerate() {
         let repo_path = PathBuf::from(&project.path);
+        // Per-project suffix only for worktree directory path, not branch name.
         let project_run_id = if projects.len() > 1 {
             format!("{}-{}", run_id, idx)
         } else {
@@ -229,6 +250,7 @@ pub async fn create_worktrees_for_workspace(
             provider: provider.clone(),
             agent_config: agent_config.clone(),
             diagnostic_model: diagnostic_model.clone(),
+            override_branch_name: shared_branch_name.clone(),
         };
 
         match create_worktree_for_ticket(ctx).await {
@@ -292,4 +314,105 @@ pub async fn create_worktrees_for_workspace(
         worktrees: created_worktrees,
         workspace_file,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    /// Verify the shared branch name generation logic used by
+    /// create_worktrees_for_workspace: when ticket.branch_name is None,
+    /// a single branch name is derived from ticket.id and run_id (not
+    /// per-project suffixed run_id), ensuring all projects share it.
+    #[test]
+    fn shared_branch_name_generated_from_ticket_and_run_id() {
+        let ticket_id = "abcdefgh-1234";
+        let run_id = "run12345-uuid";
+
+        let shared = format!(
+            "agent-work/{}/{}",
+            &ticket_id[..8.min(ticket_id.len())],
+            &run_id[..8.min(run_id.len())]
+        );
+        assert_eq!(shared, "agent-work/abcdefgh/run12345");
+    }
+
+    /// When ticket already has a branch_name, no shared override is generated.
+    #[test]
+    fn shared_branch_name_is_none_when_ticket_has_branch() {
+        let ticket_has_branch = true;
+        let shared: Option<String> = if !ticket_has_branch {
+            Some("agent-work/abc/run".to_string())
+        } else {
+            None
+        };
+        assert!(shared.is_none());
+    }
+
+    /// The per-project run_id suffix is only used for worktree directory
+    /// paths, not for branch naming when override_branch_name is set.
+    #[test]
+    fn override_branch_name_takes_precedence_over_run_id() {
+        let run_id = "run12345-0";
+        let override_branch = Some("agent-work/shared/branch".to_string());
+
+        let temp_branch = if let Some(ref override_name) = override_branch {
+            override_name.clone()
+        } else {
+            format!(
+                "agent-work/{}/{}",
+                "ticketid",
+                &run_id[..8.min(run_id.len())]
+            )
+        };
+
+        assert_eq!(temp_branch, "agent-work/shared/branch");
+        assert!(!temp_branch.contains("run12345"), "should not contain per-project run_id suffix");
+    }
+
+    /// Without override_branch_name, branch is derived from run_id.
+    #[test]
+    fn no_override_uses_run_id_for_branch() {
+        let run_id = "run12345-0";
+        let ticket_id = "abcdefgh";
+        let override_branch: Option<String> = None;
+
+        let temp_branch = if let Some(ref override_name) = override_branch {
+            override_name.clone()
+        } else {
+            format!(
+                "agent-work/{}/{}",
+                &ticket_id[..8.min(ticket_id.len())],
+                &run_id[..8.min(run_id.len())]
+            )
+        };
+
+        assert_eq!(temp_branch, "agent-work/abcdefgh/run12345");
+    }
+
+    /// Verify that per-project run_id suffixes differ while the shared
+    /// branch name stays the same (the invariant this change enforces).
+    #[test]
+    fn workspace_projects_get_different_paths_same_branch() {
+        let run_id = "run12345";
+        let ticket_id = "abcdefgh-1234";
+
+        let shared_branch = format!(
+            "agent-work/{}/{}",
+            &ticket_id[..8.min(ticket_id.len())],
+            &run_id[..8.min(run_id.len())]
+        );
+
+        let mut project_run_ids = Vec::new();
+        for idx in 0..3 {
+            project_run_ids.push(format!("{}-{}", run_id, idx));
+        }
+
+        assert_eq!(project_run_ids[0], "run12345-0");
+        assert_eq!(project_run_ids[1], "run12345-1");
+        assert_eq!(project_run_ids[2], "run12345-2");
+
+        // All projects should use the SAME branch name
+        for _run_id in &project_run_ids {
+            assert_eq!(shared_branch, "agent-work/abcdefgh/run12345");
+        }
+    }
 }

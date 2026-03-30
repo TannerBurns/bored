@@ -360,6 +360,7 @@ impl PlannerAgent {
             workspace_file: None,
             workspace_paths: vec![],
             debug_mode: false,
+            allow_protected_branch: true,
         };
 
         tracing::info!(

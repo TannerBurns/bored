@@ -72,6 +72,46 @@ pub(super) fn infer_commit_type_from_branch(branch: &str) -> &'static str {
     }
 }
 
+/// Get the current branch name for a working directory.
+/// Returns `None` if HEAD is detached or the git command fails.
+pub fn get_current_branch(working_dir: &str) -> Option<String> {
+    let output = Command::new("git")
+        .args(["rev-parse", "--abbrev-ref", "HEAD"])
+        .current_dir(working_dir)
+        .output()
+        .ok()?;
+
+    if !output.status.success() {
+        return None;
+    }
+
+    let branch = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if branch.is_empty() || branch == "HEAD" {
+        return None;
+    }
+    Some(branch)
+}
+
+/// Returns `true` if the branch name is a protected default branch (main, master).
+pub fn is_protected_branch(branch: &str) -> bool {
+    matches!(branch, "main" | "master")
+}
+
+/// Verify the working directory is NOT on a protected branch.
+/// Returns `Ok(())` if safe to commit, or `Err` with a descriptive message.
+pub fn assert_not_on_protected_branch(working_dir: &str) -> Result<(), String> {
+    if let Some(branch) = get_current_branch(working_dir) {
+        if is_protected_branch(&branch) {
+            return Err(format!(
+                "REFUSED: attempted commit on protected branch '{}' in {}. \
+                 Commits must target a feature branch, not the default branch.",
+                branch, working_dir
+            ));
+        }
+    }
+    Ok(())
+}
+
 /// Check whether there are uncommitted changes (staged or unstaged) in the working directory.
 pub fn has_uncommitted_changes(working_dir: &str) -> bool {
     Command::new("git")
@@ -86,7 +126,10 @@ pub fn has_uncommitted_changes(working_dir: &str) -> bool {
 }
 
 /// Stage all changes and commit them. Returns Ok(()) on success or an error message.
+/// Refuses to commit if the working directory is on a protected branch (main/master).
 pub fn commit_all_changes(working_dir: &str, message: &str) -> Result<(), String> {
+    assert_not_on_protected_branch(working_dir)?;
+
     let add_output = Command::new("git")
         .args(["add", "-A"])
         .current_dir(working_dir)
@@ -134,8 +177,32 @@ pub(super) fn check_has_unpushed(working_dir: &str, branch: &str) -> bool {
 }
 
 /// Push a single working directory's branch to origin.
+/// Refuses to push a protected branch name. If there are uncommitted changes,
+/// auto-commits them first — but only if the CWD is not on a protected branch
+/// (to avoid accidentally committing to main).
 pub(super) fn push_single_branch(working_dir: &str, branch: &str, ticket_title: &str) -> PushResult {
+    if is_protected_branch(branch) {
+        return PushResult {
+            success: false,
+            message: format!(
+                "REFUSED: will not push protected branch '{}'. Commits must target a feature branch.",
+                branch
+            ),
+            branch: branch.to_string(),
+        };
+    }
+
     if has_uncommitted_changes(working_dir) {
+        if let Err(e) = assert_not_on_protected_branch(working_dir) {
+            return PushResult {
+                success: false,
+                message: format!(
+                    "Uncommitted changes exist but cannot auto-commit: {}",
+                    e
+                ),
+                branch: branch.to_string(),
+            };
+        }
         let commit_type = infer_commit_type_from_branch(branch);
         let commit_msg = format!("{}: {}", commit_type, ticket_title);
         if let Err(e) = commit_all_changes(working_dir, &commit_msg) {
@@ -180,6 +247,9 @@ pub(super) fn push_single_branch(working_dir: &str, branch: &str, ticket_title: 
 }
 
 /// Create a PR for a single working directory.
+/// Refuses to create a PR from a protected branch name. If there are uncommitted
+/// changes, auto-commits them first — but only if the CWD is not on a protected
+/// branch (to avoid accidentally committing to main).
 pub(super) fn create_pr_for_project(
     working_dir: &str,
     branch: &str,
@@ -187,7 +257,28 @@ pub(super) fn create_pr_for_project(
     pr_title: &str,
     pr_body: &str,
 ) -> PullRequestResult {
+    if is_protected_branch(branch) {
+        return PullRequestResult {
+            success: false,
+            url: None,
+            message: format!(
+                "REFUSED: will not create PR from protected branch '{}'. Commits must target a feature branch.",
+                branch
+            ),
+        };
+    }
+
     if has_uncommitted_changes(working_dir) {
+        if let Err(e) = assert_not_on_protected_branch(working_dir) {
+            return PullRequestResult {
+                success: false,
+                url: None,
+                message: format!(
+                    "Uncommitted changes exist but cannot auto-commit: {}",
+                    e
+                ),
+            };
+        }
         let commit_type = infer_commit_type_from_branch(branch);
         let commit_msg = format!("{}: {}", commit_type, ticket_title);
         if let Err(e) = commit_all_changes(working_dir, &commit_msg) {
@@ -294,7 +385,7 @@ pub(super) fn get_single_project_diff(working_dir: &str, branch: &str) -> Result
 mod tests {
     use super::*;
 
-    /// Create a temporary git repo with an initial commit.
+    /// Create a temporary git repo with an initial commit (on the default branch).
     fn init_temp_repo() -> (tempfile::TempDir, String) {
         let dir = tempfile::tempdir().expect("create temp dir");
         let path = dir.path().to_str().unwrap().to_string();
@@ -328,6 +419,16 @@ mod tests {
             .expect("git commit");
 
         (dir, path)
+    }
+
+    /// Switch to a feature branch so tests can call commit_all_changes
+    /// without hitting the protected-branch guard.
+    fn checkout_feature_branch(path: &str) {
+        Command::new("git")
+            .args(["checkout", "-b", "feat/test-work"])
+            .current_dir(path)
+            .output()
+            .expect("checkout feature branch");
     }
 
     /// Create a temp repo with a bare origin so `get_default_branch` resolves.
@@ -407,6 +508,7 @@ mod tests {
     #[test]
     fn commit_all_changes_happy_path() {
         let (dir, path) = init_temp_repo();
+        checkout_feature_branch(&path);
         std::fs::write(dir.path().join("README.md"), "# changed").unwrap();
 
         let result = commit_all_changes(&path, "test commit");
@@ -417,6 +519,7 @@ mod tests {
     #[test]
     fn commit_all_changes_includes_untracked_files() {
         let (dir, path) = init_temp_repo();
+        checkout_feature_branch(&path);
         std::fs::write(dir.path().join("brand_new.txt"), "new content").unwrap();
 
         let result = commit_all_changes(&path, "add new file");
@@ -435,6 +538,7 @@ mod tests {
     #[test]
     fn commit_all_changes_uses_provided_message() {
         let (dir, path) = init_temp_repo();
+        checkout_feature_branch(&path);
         std::fs::write(dir.path().join("README.md"), "# updated").unwrap();
 
         commit_all_changes(&path, "feat: my custom message").unwrap();
@@ -452,6 +556,19 @@ mod tests {
     fn commit_all_changes_invalid_dir_returns_err() {
         let result = commit_all_changes("/nonexistent/path/that/does/not/exist", "msg");
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn commit_all_changes_refuses_on_protected_branch() {
+        let (dir, path) = init_temp_repo();
+        std::fs::write(dir.path().join("README.md"), "# changed").unwrap();
+
+        let result = commit_all_changes(&path, "should be refused");
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.contains("REFUSED"), "error should mention REFUSED: {}", err);
+        assert!(err.contains("protected branch"), "error should mention protected branch: {}", err);
+        assert!(has_uncommitted_changes(&path), "changes should still be uncommitted");
     }
 
     // --- check_has_unpushed ---
@@ -485,17 +602,16 @@ mod tests {
     fn check_has_unpushed_with_local_commit_ahead() {
         let (dir, path, _bare) = init_temp_repo_with_remote();
 
-        let branch_output = Command::new("git")
-            .args(["branch", "--show-current"])
+        Command::new("git")
+            .args(["checkout", "-b", "feat/unpushed-test"])
             .current_dir(&path)
             .output()
-            .expect("git branch");
-        let branch = String::from_utf8_lossy(&branch_output.stdout).trim().to_string();
+            .expect("checkout feature branch");
 
         std::fs::write(dir.path().join("new.txt"), "local only").unwrap();
         commit_all_changes(&path, "local commit").unwrap();
 
-        assert!(check_has_unpushed(&path, &branch));
+        assert!(check_has_unpushed(&path, "feat/unpushed-test"));
     }
 
     // --- infer_commit_type_from_branch ---
@@ -545,42 +661,65 @@ mod tests {
     fn push_single_branch_to_bare_remote() {
         let (dir, path, _bare) = init_temp_repo_with_remote();
 
-        let branch_output = Command::new("git")
-            .args(["branch", "--show-current"])
+        Command::new("git")
+            .args(["checkout", "-b", "feat/push-test"])
             .current_dir(&path)
             .output()
-            .expect("git branch");
-        let branch = String::from_utf8_lossy(&branch_output.stdout).trim().to_string();
+            .expect("checkout feature branch");
 
         std::fs::write(dir.path().join("new.txt"), "content").unwrap();
         commit_all_changes(&path, "add new file").unwrap();
 
-        let result = push_single_branch(&path, &branch, "My ticket");
+        let result = push_single_branch(&path, "feat/push-test", "My ticket");
         assert!(result.success, "push should succeed: {}", result.message);
-        assert_eq!(result.branch, branch);
+        assert_eq!(result.branch, "feat/push-test");
     }
 
     #[test]
     fn push_single_branch_commits_uncommitted_changes() {
         let (dir, path, _bare) = init_temp_repo_with_remote();
 
-        let branch_output = Command::new("git")
-            .args(["branch", "--show-current"])
+        Command::new("git")
+            .args(["checkout", "-b", "feat/auto-commit-test"])
             .current_dir(&path)
             .output()
-            .expect("git branch");
-        let branch = String::from_utf8_lossy(&branch_output.stdout).trim().to_string();
+            .expect("checkout feature branch");
 
         std::fs::write(dir.path().join("uncommitted.txt"), "data").unwrap();
         assert!(has_uncommitted_changes(&path));
 
-        let _result = push_single_branch(&path, &format!("feat/{}", branch), "My ticket");
+        let _result = push_single_branch(&path, "feat/auto-commit-test", "My ticket");
         assert!(!has_uncommitted_changes(&path));
     }
 
     #[test]
+    fn push_single_branch_refuses_protected_branch_name() {
+        let result = push_single_branch("/some/path", "main", "title");
+        assert!(!result.success);
+        assert!(result.message.contains("REFUSED"), "should mention REFUSED: {}", result.message);
+
+        let result2 = push_single_branch("/some/path", "master", "title");
+        assert!(!result2.success);
+        assert!(result2.message.contains("REFUSED"), "should mention REFUSED: {}", result2.message);
+    }
+
+    #[test]
+    fn push_single_branch_refuses_auto_commit_on_protected_working_dir() {
+        let (dir, path) = init_temp_repo();
+        std::fs::write(dir.path().join("dirty.txt"), "uncommitted").unwrap();
+
+        let result = push_single_branch(&path, "feat/something", "title");
+        assert!(!result.success);
+        assert!(
+            result.message.contains("cannot auto-commit"),
+            "should mention cannot auto-commit: {}", result.message
+        );
+        assert!(has_uncommitted_changes(&path), "changes should still be uncommitted");
+    }
+
+    #[test]
     fn push_single_branch_invalid_dir_fails() {
-        let result = push_single_branch("/nonexistent/path", "main", "title");
+        let result = push_single_branch("/nonexistent/path", "feat/test", "title");
         assert!(!result.success);
     }
 
@@ -619,5 +758,102 @@ mod tests {
         assert!(!diff.trim().is_empty());
         assert!(diff.contains("feature.txt"));
         assert_eq!(files_changed, 1);
+    }
+
+    // --- get_current_branch ---
+
+    #[test]
+    fn get_current_branch_returns_branch_name() {
+        let (_dir, path) = init_temp_repo();
+        let branch = get_current_branch(&path);
+        assert!(branch.is_some());
+        let name = branch.unwrap();
+        assert!(name == "main" || name == "master", "expected main or master, got {}", name);
+    }
+
+    #[test]
+    fn get_current_branch_on_feature_branch() {
+        let (_dir, path) = init_temp_repo();
+        checkout_feature_branch(&path);
+        let branch = get_current_branch(&path);
+        assert_eq!(branch, Some("feat/test-work".to_string()));
+    }
+
+    #[test]
+    fn get_current_branch_returns_none_for_invalid_dir() {
+        let branch = get_current_branch("/nonexistent/path/that/does/not/exist");
+        assert!(branch.is_none());
+    }
+
+    // --- is_protected_branch ---
+
+    #[test]
+    fn is_protected_branch_recognizes_main_and_master() {
+        assert!(is_protected_branch("main"));
+        assert!(is_protected_branch("master"));
+    }
+
+    #[test]
+    fn is_protected_branch_allows_feature_branches() {
+        assert!(!is_protected_branch("feat/add-feature"));
+        assert!(!is_protected_branch("fix/bug"));
+        assert!(!is_protected_branch("agent-work/abc/123"));
+        assert!(!is_protected_branch("develop"));
+        assert!(!is_protected_branch(""));
+    }
+
+    // --- assert_not_on_protected_branch ---
+
+    #[test]
+    fn assert_not_on_protected_branch_blocks_main() {
+        let (_dir, path) = init_temp_repo();
+        let result = assert_not_on_protected_branch(&path);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.contains("REFUSED"));
+        assert!(err.contains("protected branch"));
+    }
+
+    #[test]
+    fn assert_not_on_protected_branch_allows_feature_branch() {
+        let (_dir, path) = init_temp_repo();
+        checkout_feature_branch(&path);
+        let result = assert_not_on_protected_branch(&path);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn assert_not_on_protected_branch_allows_invalid_dir() {
+        let result = assert_not_on_protected_branch("/nonexistent/path");
+        assert!(result.is_ok(), "should pass when branch cannot be determined");
+    }
+
+    // --- create_pr_for_project ---
+
+    #[test]
+    fn create_pr_refuses_protected_branch_name() {
+        let result = create_pr_for_project("/some/path", "main", "title", "PR", "body");
+        assert!(!result.success);
+        assert!(result.url.is_none());
+        assert!(result.message.contains("REFUSED"), "should mention REFUSED: {}", result.message);
+        assert!(result.message.contains("protected branch"), "should mention protected branch: {}", result.message);
+
+        let result2 = create_pr_for_project("/some/path", "master", "title", "PR", "body");
+        assert!(!result2.success);
+        assert!(result2.message.contains("REFUSED"));
+    }
+
+    #[test]
+    fn create_pr_refuses_auto_commit_on_protected_working_dir() {
+        let (dir, path) = init_temp_repo();
+        std::fs::write(dir.path().join("dirty.txt"), "uncommitted").unwrap();
+
+        let result = create_pr_for_project(&path, "feat/test", "title", "PR", "body");
+        assert!(!result.success);
+        assert!(
+            result.message.contains("cannot auto-commit"),
+            "should mention cannot auto-commit: {}", result.message
+        );
+        assert!(has_uncommitted_changes(&path), "changes should still be uncommitted");
     }
 }

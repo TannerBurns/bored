@@ -51,29 +51,80 @@ function repairUnquotedValues(text: string): string {
   );
 }
 
+/** Walk from the opening brace and find the matching closing brace,
+ *  correctly skipping braces inside JSON string literals so that embedded
+ *  markdown code blocks (```json ... ```) inside description values don't
+ *  break extraction. */
+function extractBalancedJson(text: string): string | null {
+  let depth = 0;
+  let inString = false;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (inString) {
+      if (ch === '\\') { i++; continue; }
+      if (ch === '"') inString = false;
+      continue;
+    }
+    if (ch === '"') { inString = true; continue; }
+    if (ch === '{') depth++;
+    else if (ch === '}') {
+      depth--;
+      if (depth === 0) return text.slice(0, i + 1);
+    }
+  }
+  return null;
+}
+
 function parseTicketBuilderResponse(content: string): TicketBuilderParsed | null {
-  const jsonMatch = content.match(/```json\s*([\s\S]*?)```/);
-  if (jsonMatch) {
-    const parsed = tryParseJson(jsonMatch[1]);
-    if (parsed) {
-      const jsonStart = content.indexOf(jsonMatch[0]);
-      return {
-        tickets: parsed.tickets,
-        textBefore: content.slice(0, jsonStart).trim(),
-        textAfter: content.slice(jsonStart + jsonMatch[0].length).trim(),
-      };
+  // Strategy 1: fenced ```json block with balanced brace matching.
+  // A naive lazy regex (```json\s*([\s\S]*?)```) fails when JSON string
+  // values themselves contain ``` markers (e.g. markdown code blocks in
+  // ticket descriptions). Instead, find the first { after ```json and use
+  // balanced brace matching to extract the complete JSON object.
+  const fenceIdx = content.indexOf('```json');
+  if (fenceIdx !== -1) {
+    const afterFence = content.slice(fenceIdx + 7);
+    const braceOffset = afterFence.indexOf('{');
+    if (braceOffset !== -1) {
+      const candidate = extractBalancedJson(afterFence.slice(braceOffset));
+      if (candidate) {
+        const parsed = tryParseJson(candidate);
+        if (parsed) {
+          const jsonEnd = fenceIdx + 7 + braceOffset + candidate.length;
+          const rest = content.slice(jsonEnd);
+          const closingFenceIdx = rest.indexOf('```');
+          const blockEnd = closingFenceIdx !== -1 ? jsonEnd + closingFenceIdx + 3 : jsonEnd;
+          return {
+            tickets: parsed.tickets,
+            textBefore: content.slice(0, fenceIdx).trim(),
+            textAfter: content.slice(blockEnd).trim(),
+          };
+        }
+      }
     }
   }
 
-  const rawMatch = content.match(/\{[\s\S]*"tickets"[\s\S]*\}/);
-  if (rawMatch) {
-    const parsed = tryParseJson(rawMatch[0]);
-    if (parsed) {
-      return {
-        tickets: parsed.tickets,
-        textBefore: content.slice(0, rawMatch.index).trim(),
-        textAfter: content.slice(rawMatch.index! + rawMatch[0].length).trim(),
-      };
+  // Strategy 2: bare JSON object — search backward from "tickets" for the
+  // enclosing { and use balanced brace matching. This avoids the greedy
+  // regex which can match spurious { chars in preamble text (e.g. interface{}).
+  const ticketsIdx = content.indexOf('"tickets"');
+  if (ticketsIdx !== -1) {
+    let searchFrom = ticketsIdx;
+    while (searchFrom >= 0) {
+      const braceIdx = content.lastIndexOf('{', searchFrom);
+      if (braceIdx === -1) break;
+      const candidate = extractBalancedJson(content.slice(braceIdx));
+      if (candidate) {
+        const parsed = tryParseJson(candidate);
+        if (parsed) {
+          return {
+            tickets: parsed.tickets,
+            textBefore: content.slice(0, braceIdx).trim(),
+            textAfter: content.slice(braceIdx + candidate.length).trim(),
+          };
+        }
+      }
+      searchFrom = braceIdx - 1;
     }
   }
 
@@ -111,6 +162,12 @@ export function TicketBuilderMessage({ content, chatId, alreadyCreated }: Ticket
 
   return (
     <div className="space-y-3">
+      {parsed.textBefore && (
+        <div className="rounded-xl px-4 py-2.5 glass">
+          <MarkdownViewer content={parsed.textBefore} />
+        </div>
+      )}
+
       <div className="space-y-3">
         {parsed.tickets.map((ticket, i) => (
           <TicketPreviewCard key={i} ticket={ticket} />
@@ -135,6 +192,12 @@ export function TicketBuilderMessage({ content, chatId, alreadyCreated }: Ticket
             <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
           </svg>
           Tickets created
+        </div>
+      )}
+
+      {parsed.textAfter && (
+        <div className="rounded-xl px-4 py-2.5 glass">
+          <MarkdownViewer content={parsed.textAfter} />
         </div>
       )}
     </div>

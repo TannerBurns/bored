@@ -99,8 +99,14 @@ Do NOT start implementing any code changes. Just rename the branch.
 
         let _rename_result = self.run_stage("branch", &rename_prompt).await?;
 
-        // Now that the git rename succeeded, store the NEW branch name on ticket
+        // Store the new branch name now — the primary is already renamed, so
+        // the ticket must reference the new name regardless of secondary outcomes.
         self.store_branch_name(&new_branch_name);
+
+        // Rename branches in all secondary workspace worktrees. If any fail,
+        // halt the workflow so the mismatch is surfaced rather than silently
+        // proceeding with a broken state (secondary on old branch, ticket on new).
+        self.rename_workspace_secondary_branches(temp_branch_name, &new_branch_name)?;
 
         Ok(())
     }
@@ -229,6 +235,92 @@ Do NOT start implementing any code changes. Just create the branch.
         let _branch_result = self.run_stage("branch", &branch_prompt).await?;
 
         Ok(())
+    }
+
+    /// Rename branches in all secondary workspace worktrees using direct git
+    /// commands. The primary worktree's branch is already renamed by the agent;
+    /// this ensures secondary projects also have the new branch name so that
+    /// `get_ticket_working_dirs` can find all worktrees by branch.
+    ///
+    /// Returns `Err` if any rename fails. Failing silently would leave the
+    /// ticket's stored branch name out of sync with the secondary worktree,
+    /// causing downstream stages to operate on the wrong directory.
+    fn rename_workspace_secondary_branches(
+        &self,
+        old_branch: &str,
+        new_branch: &str,
+    ) -> Result<(), String> {
+        if self.workspace_paths.is_empty() {
+            return Ok(());
+        }
+
+        let primary = self.repo_path.to_string_lossy().to_string();
+        let mut failed: Vec<String> = Vec::new();
+
+        for ws_path in &self.workspace_paths {
+            let ws_path_str = ws_path.to_string_lossy().to_string();
+            if ws_path_str == primary {
+                continue;
+            }
+
+            if !ws_path.exists() {
+                failed.push(format!("{} (directory missing)", ws_path_str));
+                continue;
+            }
+
+            tracing::info!(
+                "Renaming branch '{}' -> '{}' in workspace worktree {}",
+                old_branch, new_branch, ws_path_str
+            );
+
+            let rename_result = std::process::Command::new("git")
+                .args(["branch", "-m", old_branch, new_branch])
+                .current_dir(ws_path)
+                .output();
+
+            match rename_result {
+                Ok(output) if output.status.success() => {
+                    let push_result = std::process::Command::new("git")
+                        .args(["push", "-u", "origin", new_branch])
+                        .current_dir(ws_path)
+                        .output();
+                    if let Ok(po) = push_result {
+                        if !po.status.success() {
+                            let stderr = String::from_utf8_lossy(&po.stderr);
+                            tracing::warn!(
+                                "Failed to push renamed branch in workspace worktree {}: {}",
+                                ws_path_str, stderr.trim()
+                            );
+                        }
+                    }
+                }
+                Ok(output) => {
+                    let stderr = String::from_utf8_lossy(&output.stderr);
+                    tracing::error!(
+                        "Failed to rename branch in workspace worktree {}: {}",
+                        ws_path_str, stderr.trim()
+                    );
+                    failed.push(format!("{} ({})", ws_path_str, stderr.trim()));
+                }
+                Err(e) => {
+                    tracing::error!(
+                        "Failed to run git branch -m in workspace worktree {}: {}",
+                        ws_path_str, e
+                    );
+                    failed.push(format!("{} ({})", ws_path_str, e));
+                }
+            }
+        }
+
+        if failed.is_empty() {
+            Ok(())
+        } else {
+            Err(format!(
+                "Failed to rename branch in {} workspace worktree(s): {}",
+                failed.len(),
+                failed.join("; ")
+            ))
+        }
     }
 
     /// Store a branch name on the ticket and emit update event.

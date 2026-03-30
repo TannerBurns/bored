@@ -92,6 +92,15 @@ export function TicketModal({
     }
   }, [ticket, createChat, selectChat, onNavigateToChat]);
 
+  const handleRunWithAgent = useCallback(async (ticketId: string, agentType: string, workflowMode?: string) => {
+    if (!onRunWithAgent) return undefined;
+    const error = await onRunWithAgent(ticketId, agentType, workflowMode);
+    if (error) {
+      agentEvents.setAgentError(error);
+    }
+    return error;
+  }, [onRunWithAgent, agentEvents.setAgentError]);
+
   useEffect(() => {
     const loadProjects = async () => {
       try {
@@ -286,7 +295,7 @@ export function TicketModal({
           isSaving={editState.isSaving}
           showDeleteConfirm={showDeleteConfirm}
           setShowDeleteConfirm={setShowDeleteConfirm}
-          onRunWithAgent={onRunWithAgent}
+          onRunWithAgent={onRunWithAgent ? handleRunWithAgent : undefined}
           onValidateWithAgent={handleValidateWithAgent}
           onDelete={onDelete ? handleDelete : undefined}
           onSave={editState.handleSave}

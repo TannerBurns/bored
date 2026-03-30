@@ -125,6 +125,7 @@ impl ChatAgent {
             workspace_file: self.config.workspace_file.clone(),
             workspace_paths: self.config.workspace_paths.clone(),
             debug_mode: self.config.debug_mode,
+            allow_protected_branch: true,
         };
 
         if stored_session_id.is_some() {

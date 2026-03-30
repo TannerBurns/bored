@@ -4,9 +4,9 @@ use super::auto_pilot;
 use super::config::{TodoItemStatus, WorkflowMode};
 use super::WorkflowOrchestrator;
 use crate::agents::prompt::{
-    generate_command_prompt, generate_implement_prompt, generate_plan_prompt,
-    generate_task_implement_prompt, generate_task_plan_prompt, generate_task_prompt,
-    generate_todo_implement_prompt,
+    generate_command_prompt, generate_implement_prompt,
+    generate_plan_prompt, generate_task_implement_prompt, generate_task_plan_prompt,
+    generate_task_prompt, generate_todo_implement_prompt,
 };
 use crate::db::models::TaskType;
 
@@ -216,7 +216,7 @@ impl WorkflowOrchestrator {
                 .await
         } else {
             let base_prompt = generate_command_prompt(&selection.command, custom_dir);
-            let prompt = self.append_workspace_context_to_prompt(&base_prompt);
+            let prompt = format!("{}{}", self.build_stage_context_prefix(), base_prompt);
             self.run_stage_with_model(
                 &selection.command,
                 &prompt,
@@ -320,6 +320,11 @@ impl WorkflowOrchestrator {
     }
 
     /// Workspace display name and (project name, path) pairs for multi-repo prompts.
+    ///
+    /// Resolves each project to its worktree path so the agent never sees the
+    /// main checkout paths in the prompt. Without this, the prompt would expose
+    /// the original project directories (checked out on main) and the agent
+    /// could cd into them and commit directly to main.
     fn workspace_prompt_owned(&self) -> Option<(String, Vec<(String, String)>)> {
         let workspace_id = self.ticket.workspace_id.as_ref()?;
         let ws = self.db.get_workspace(workspace_id).ok().flatten()?;
@@ -327,10 +332,38 @@ impl WorkflowOrchestrator {
         if projects.is_empty() {
             return None;
         }
-        Some((
-            ws.name,
-            projects.into_iter().map(|p| (p.name, p.path)).collect(),
-        ))
+
+        // Re-read the branch name from the DB since self.ticket is a snapshot
+        // from orchestrator construction and won't reflect branch names set
+        // during the branch stage of the current run.
+        let current_branch = self.db.get_ticket(&self.ticket.id)
+            .ok()
+            .and_then(|t| t.branch_name)
+            .or_else(|| self.worktree_branch.clone());
+
+        let mut pairs: Vec<(String, String)> = Vec::new();
+        for p in &projects {
+            let worktree_path = match current_branch.as_deref() {
+                Some(branch) => match crate::commands::next_steps::resolve_working_dir_strict(&p.path, branch) {
+                    Ok(resolved) => resolved,
+                    Err(_) => {
+                        tracing::warn!(
+                            "No worktree found for project '{}', excluding from workspace prompt",
+                            p.name
+                        );
+                        continue;
+                    }
+                },
+                None => p.path.clone(),
+            };
+            pairs.push((p.name.clone(), worktree_path));
+        }
+
+        if pairs.is_empty() {
+            return None;
+        }
+
+        Some((ws.name, pairs))
     }
 
     /// Run the plan stage and return the extracted plan.
@@ -600,65 +633,125 @@ impl WorkflowOrchestrator {
         let cmd = "add-and-commit";
         if self.should_skip_stage(cmd) {
             tracing::info!("Skipping '{}' stage (resuming from later stage)", cmd);
-        } else if !self.is_stage_enabled(cmd) {
+            return Ok(());
+        }
+        if !self.is_stage_enabled(cmd) {
             tracing::info!("Skipping '{}' stage (disabled in workflow settings)", cmd);
-        } else if self.is_cancelled() {
+            return Ok(());
+        }
+        if self.is_cancelled() {
             return Err("Workflow cancelled".to_string());
-        } else {
-            let custom_dir = self.custom_commands_dir();
-            let base_prompt = generate_command_prompt(cmd, custom_dir.as_deref());
-            let prompt = self.append_workspace_context_to_prompt(&base_prompt);
-            self.run_stage(cmd, &prompt).await?;
         }
 
-        self.commit_secondary_workspace_worktrees();
+        let custom_dir = self.custom_commands_dir();
+        let base_prompt = generate_command_prompt(cmd, custom_dir.as_deref());
+        let contextual_prompt = format!("{}{}", self.build_stage_context_prefix(), base_prompt);
+
+        if self.ticket.workspace_id.is_some() {
+            self.run_workspace_commit_stage(cmd, &contextual_prompt).await?;
+        } else {
+            self.run_stage(cmd, &contextual_prompt).await?;
+        }
 
         Ok(())
     }
 
-    /// For workspace tickets, commit any uncommitted changes in secondary project
-    /// worktrees. The agent's add-and-commit only commits in the primary worktree
-    /// (its CWD), but stages may have written changes to secondary projects via
-    /// --add-dir paths.
-    fn commit_secondary_workspace_worktrees(&self) {
-        if self.ticket.workspace_id.is_none() {
-            return;
-        }
-
-        let dirs = match crate::commands::next_steps::get_ticket_working_dirs(
-            &self.db,
-            &self.ticket.id,
-        ) {
-            Ok(dirs) if dirs.len() > 1 => dirs,
-            _ => return,
+    /// Run the add-and-commit stage for each workspace project that has changes.
+    /// The primary project runs first (in the orchestrator's CWD), then each
+    /// secondary project runs in its own worktree directory.
+    ///
+    /// Uses `resolve_working_dir_strict` to resolve worktree paths so that a
+    /// missing worktree is skipped rather than silently falling back to the
+    /// project's main checkout (which would commit to the wrong branch).
+    async fn run_workspace_commit_stage(
+        &self,
+        cmd: &str,
+        base_prompt: &str,
+    ) -> Result<(), String> {
+        let workspace_id = match self.ticket.workspace_id.as_ref() {
+            Some(id) => id,
+            None => {
+                self.run_stage(cmd, base_prompt).await?;
+                return Ok(());
+            }
         };
 
-        let primary = self.repo_path.to_string_lossy().to_string();
-        let commit_msg = format!("chore: {}", self.ticket.title);
+        let projects = self.db.get_workspace_projects(workspace_id)
+            .map_err(|e| format!("Failed to get workspace projects: {}", e))?;
 
-        for (_, project_name, working_dir, _) in &dirs {
-            if *working_dir == primary {
-                continue;
+        let current_branch = self.db.get_ticket(&self.ticket.id)
+            .ok()
+            .and_then(|t| t.branch_name)
+            .or_else(|| self.worktree_branch.clone());
+
+        let branch = match current_branch.as_deref() {
+            Some(b) if !b.is_empty() => b,
+            _ => {
+                self.run_stage(cmd, base_prompt).await?;
+                return Ok(());
             }
+        };
+
+        let mut secondary_dirs: Vec<(String, String)> = Vec::new();
+        let primary = self.repo_path.to_string_lossy().to_string();
+
+        for p in &projects {
+            let worktree_path = match crate::commands::next_steps::resolve_working_dir_strict(&p.path, branch) {
+                Ok(resolved) => resolved,
+                Err(_) => {
+                    tracing::warn!(
+                        "No worktree found for project '{}', skipping commit stage \
+                         to avoid operating on main checkout",
+                        p.name
+                    );
+                    continue;
+                }
+            };
+            if worktree_path != primary {
+                secondary_dirs.push((p.name.clone(), worktree_path));
+            }
+        }
+
+        self.run_stage(cmd, base_prompt).await?;
+
+        for (project_name, working_dir) in &secondary_dirs {
 
             if !crate::commands::next_steps::has_uncommitted_changes(working_dir) {
                 continue;
             }
 
+            if self.is_cancelled() {
+                return Err("Workflow cancelled".to_string());
+            }
+
             tracing::info!(
-                "Committing uncommitted changes in workspace project '{}' ({})",
-                project_name,
-                working_dir
+                "Running add-and-commit for workspace project '{}' ({})",
+                project_name, working_dir
             );
 
-            if let Err(e) = crate::commands::next_steps::commit_all_changes(working_dir, &commit_msg) {
-                tracing::error!(
-                    "Failed to commit changes in workspace project '{}': {}",
-                    project_name,
-                    e
-                );
+            let dir_path = std::path::PathBuf::from(working_dir);
+            match self.run_stage_in_dir(cmd, base_prompt, &dir_path).await {
+                Ok(_) => {}
+                Err(e) => {
+                    tracing::error!(
+                        "Agent add-and-commit failed for workspace project '{}', \
+                         falling back to basic commit: {}",
+                        project_name, e
+                    );
+                    let commit_msg = format!("chore: {}", self.ticket.title);
+                    if let Err(commit_err) =
+                        crate::commands::next_steps::commit_all_changes(working_dir, &commit_msg)
+                    {
+                        tracing::error!(
+                            "Fallback commit also failed for workspace project '{}': {}",
+                            project_name, commit_err
+                        );
+                    }
+                }
             }
         }
+
+        Ok(())
     }
 
     async fn run_command_stage(&self, cmd: &str) -> Result<(), String> {
@@ -675,7 +768,7 @@ impl WorkflowOrchestrator {
         }
         let custom_dir = self.custom_commands_dir();
         let base_prompt = generate_command_prompt(cmd, custom_dir.as_deref());
-        let prompt = self.append_workspace_context_to_prompt(&base_prompt);
+        let prompt = format!("{}{}", self.build_stage_context_prefix(), base_prompt);
         self.run_stage(cmd, &prompt).await?;
         Ok(())
     }

@@ -7,7 +7,7 @@ use tauri::Emitter;
 use super::code_review::{extract_issues_with_parsed, parse_code_review_issues, parse_structured_review};
 use super::config::StageEvent;
 use super::WorkflowOrchestrator;
-use crate::agents::prompt::generate_command_prompt;
+use crate::agents::prompt::{build_ticket_context, generate_command_prompt};
 use crate::agents::{AgentRunConfig, AgentRunResult};
 use crate::agents::{LogCallback, LogLine, LogStream, RunOutcome};
 use crate::db::{AgentEventPayload, CreateRun, EventType, NormalizedEvent, RunStatus};
@@ -20,7 +20,7 @@ impl WorkflowOrchestrator {
         prompt: &str,
     ) -> Result<AgentRunResult, String> {
         let sid = self.get_workflow_session_id();
-        self.run_stage_inner(stage, prompt, None, sid.as_deref(), None, None)
+        self.run_stage_inner(stage, prompt, None, sid.as_deref(), None, None, None)
             .await
     }
 
@@ -32,7 +32,7 @@ impl WorkflowOrchestrator {
         model: &str,
     ) -> Result<AgentRunResult, String> {
         let sid = self.get_workflow_session_id();
-        self.run_stage_inner(stage, prompt, Some(model), sid.as_deref(), None, None)
+        self.run_stage_inner(stage, prompt, Some(model), sid.as_deref(), None, None, None)
             .await
     }
 
@@ -53,8 +53,25 @@ impl WorkflowOrchestrator {
             sid.as_deref(),
             Some(timeout_secs),
             Some(max_retries),
+            None,
         )
         .await
+    }
+
+    /// Run a single stage in a specific directory (instead of the primary repo_path).
+    /// Used by the commit stage to run add-and-commit in each workspace project.
+    ///
+    /// Does not pass or capture the workflow session ID — secondary worktree
+    /// runs must not overwrite the shared session, which would cause subsequent
+    /// stages (e.g. code-review) to attempt --resume with a stale context.
+    pub(super) async fn run_stage_in_dir(
+        &self,
+        stage: &str,
+        prompt: &str,
+        dir: &std::path::Path,
+    ) -> Result<AgentRunResult, String> {
+        self.run_stage_inner(stage, prompt, None, None, None, None, Some(dir))
+            .await
     }
 
     fn get_workflow_session_id(&self) -> Option<String> {
@@ -89,6 +106,7 @@ impl WorkflowOrchestrator {
         session_id: Option<&str>,
         timeout_override: Option<u64>,
         retries_override: Option<u32>,
+        dir_override: Option<&std::path::Path>,
     ) -> Result<AgentRunResult, String> {
         let max_attempts = retries_override.unwrap_or(self.stage_max_retries) + 1;
         let mut last_error = String::new();
@@ -121,7 +139,7 @@ impl WorkflowOrchestrator {
             let attempt_session_id = if attempt == 1 { session_id } else { None };
 
             match self
-                .run_stage_attempt(stage, prompt, attempt, max_attempts, model_override, attempt_session_id, timeout_override)
+                .run_stage_attempt(stage, prompt, attempt, max_attempts, model_override, attempt_session_id, timeout_override, dir_override)
                 .await
             {
                 Ok(result) => return Ok(result),
@@ -147,7 +165,9 @@ impl WorkflowOrchestrator {
         Err(format!("{} (after {} attempts)", last_error, max_attempts))
     }
 
-    /// Run a single attempt of a stage
+    /// Run a single attempt of a stage.
+    /// When `dir_override` is set, the agent runs in that directory instead of
+    /// the orchestrator's primary `repo_path`.
     pub(super) async fn run_stage_attempt(
         &self,
         stage: &str,
@@ -157,13 +177,19 @@ impl WorkflowOrchestrator {
         model_override: Option<&str>,
         session_id: Option<&str>,
         timeout_override: Option<u64>,
+        dir_override: Option<&std::path::Path>,
     ) -> Result<AgentRunResult, String> {
+        let effective_repo_path = dir_override
+            .map(|d| d.to_path_buf())
+            .unwrap_or_else(|| self.repo_path.clone());
+
         tracing::info!(
-            "Starting stage '{}' attempt {}/{} for parent run {}",
+            "Starting stage '{}' attempt {}/{} for parent run {}{}",
             stage,
             attempt,
             max_attempts,
-            self.parent_run_id
+            self.parent_run_id,
+            dir_override.map_or(String::new(), |d| format!(" (in {})", d.display()))
         );
 
         if attempt == 1 {
@@ -172,20 +198,18 @@ impl WorkflowOrchestrator {
 
         let db_agent_type = self.agent_id.clone();
 
-        // Create sub-run in database
         let sub_run = self
             .db
             .create_run(&CreateRun {
                 ticket_id: self.ticket.id.clone(),
                 agent_type: db_agent_type,
-                repo_path: self.repo_path.to_string_lossy().to_string(),
+                repo_path: effective_repo_path.to_string_lossy().to_string(),
                 parent_run_id: Some(self.parent_run_id.clone()),
                 stage: Some(stage.to_string()),
                 ..Default::default()
             })
             .map_err(|e| format!("Failed to create sub-run: {}", e))?;
 
-        // Update sub-run status to running
         self.db
             .update_run_status(&sub_run.id, RunStatus::Running, None, None)
             .map_err(|e| format!("Failed to update sub-run status: {}", e))?;
@@ -197,7 +221,7 @@ impl WorkflowOrchestrator {
             agent_id: self.agent_id.clone(),
             ticket_id: self.ticket.id.clone(),
             run_id: sub_run.id.clone(),
-            repo_path: self.repo_path.clone(),
+            repo_path: effective_repo_path,
             prompt: prompt.to_string(),
             timeout_secs: Some(timeout_override.unwrap_or(self.stage_timeout_secs)),
             model: Some(stage_model.clone()),
@@ -206,6 +230,7 @@ impl WorkflowOrchestrator {
             workspace_file: self.workspace_file.clone(),
             workspace_paths: self.workspace_paths.clone(),
             debug_mode: self.debug_mode,
+            allow_protected_branch: false,
         };
 
         // Create log callback
@@ -374,26 +399,28 @@ impl WorkflowOrchestrator {
             ));
         }
 
-        if let Some(ref stdout) = result.captured_stdout {
-            if let Some(sid) = self.provider.extract_session_id(stdout) {
-                let is_new = self
-                    .get_workflow_session_id()
-                    .as_ref()
-                    .map(|old| *old != sid)
-                    .unwrap_or(true);
-                if is_new {
-                    tracing::info!(
-                        "Captured workflow session id from '{}' stage: {}",
+        if dir_override.is_none() {
+            if let Some(ref stdout) = result.captured_stdout {
+                if let Some(sid) = self.provider.extract_session_id(stdout) {
+                    let is_new = self
+                        .get_workflow_session_id()
+                        .as_ref()
+                        .map(|old| *old != sid)
+                        .unwrap_or(true);
+                    if is_new {
+                        tracing::info!(
+                            "Captured workflow session id from '{}' stage: {}",
+                            stage,
+                            sid,
+                        );
+                        self.set_workflow_session_id(&sid);
+                    }
+                } else if session_id.is_none() {
+                    tracing::warn!(
+                        "No session_id found in agent output for stage '{}' — subsequent stages will not use --resume",
                         stage,
-                        sid,
                     );
-                    self.set_workflow_session_id(&sid);
                 }
-            } else if session_id.is_none() {
-                tracing::warn!(
-                    "No session_id found in agent output for stage '{}' — subsequent stages will not use --resume",
-                    stage,
-                );
             }
         }
 
@@ -489,6 +516,69 @@ impl WorkflowOrchestrator {
         }
     }
 
+    /// Build a branch-information section for stage prompts. For single-repo
+    /// tickets this is just the branch and base branch. For workspace tickets
+    /// it also lists each project's worktree directory so the agent can `cd`
+    /// into them.
+    pub(super) fn build_branch_context(&self) -> String {
+        let current_branch = self.db.get_ticket(&self.ticket.id)
+            .ok()
+            .and_then(|t| t.branch_name)
+            .or_else(|| self.worktree_branch.clone());
+
+        let branch = match current_branch.as_deref() {
+            Some(b) if !b.is_empty() => b,
+            _ => return String::new(),
+        };
+
+        let default_branch = crate::commands::next_steps::get_default_branch(
+            &self.repo_path.to_string_lossy(),
+        )
+        .unwrap_or_else(|_| "origin/main".to_string());
+
+        let mut ctx = String::new();
+        ctx.push_str("## Branch Information\n\n");
+        ctx.push_str(&format!("- **Branch:** `{}`\n", branch));
+        ctx.push_str(&format!("- **Base branch:** `{}`\n", default_branch));
+
+        if let Some(workspace_id) = self.ticket.workspace_id.as_ref() {
+            if let Ok(projects) = self.db.get_workspace_projects(workspace_id) {
+                if projects.len() > 1 {
+                    ctx.push_str("\n### Projects\n\n");
+                    for p in &projects {
+                        let worktree_path = match crate::commands::next_steps::resolve_working_dir_strict(
+                            &p.path, branch,
+                        ) {
+                            Ok(resolved) => resolved,
+                            Err(_) => {
+                                tracing::warn!(
+                                    "No worktree found for project '{}', excluding from code review branch context",
+                                    p.name
+                                );
+                                continue;
+                            }
+                        };
+                        ctx.push_str(&format!("- **{}** — `{}`\n", p.name, worktree_path));
+                    }
+                    ctx.push_str(
+                        "\nYou must review changes in ALL projects. `cd` into each \
+                         project directory above and run the git diff commands.\n",
+                    );
+                }
+            }
+        }
+
+        ctx.push('\n');
+        ctx
+    }
+
+    /// Build the ticket-intent + branch-info prefix used by all command stages.
+    pub(super) fn build_stage_context_prefix(&self) -> String {
+        let ticket_context = build_ticket_context(&self.ticket);
+        let branch_context = self.build_branch_context();
+        format!("{}{}", ticket_context, branch_context)
+    }
+
     /// Run the iterative code review loop using the model from stage_configs.
     pub(super) async fn run_code_review_loop(&self) -> Result<(), String> {
         let model = self.get_stage_model("code-review");
@@ -513,84 +603,6 @@ impl WorkflowOrchestrator {
             None,
         )
         .await
-    }
-
-    /// For workspace tickets, append the combined workspace diff context to a prompt.
-    pub(super) fn append_workspace_context_to_prompt(&self, prompt: &str) -> String {
-        match self.build_workspace_diff_context() {
-            Some(ws_context) => format!(
-                "{}\n\n{}\n\n\
-                 IMPORTANT: The git commands above will only show changes for the primary \
-                 project. This ticket spans multiple projects in a workspace. The full \
-                 workspace diff is provided above — use it to see changes in ALL projects. \
-                 You can also access other project directories via `--add-dir` paths.",
-                prompt, ws_context
-            ),
-            None => prompt.to_string(),
-        }
-    }
-
-    fn build_workspace_diff_context(&self) -> Option<String> {
-        self.ticket.workspace_id.as_ref()?;
-
-        match crate::commands::next_steps::get_ticket_working_dirs(&self.db, &self.ticket.id) {
-            Ok(dirs) if dirs.len() > 1 => {
-                let mut sections = Vec::new();
-                for (_, project_name, working_dir, branch) in &dirs {
-                    let default_branch = crate::commands::next_steps::get_default_branch(working_dir)
-                        .unwrap_or_else(|_| "origin/main".to_string());
-
-                    let stat = std::process::Command::new("git")
-                        .args(["diff", "--stat", &format!("{}...{}", default_branch, branch)])
-                        .current_dir(working_dir)
-                        .output();
-
-                    let diff = std::process::Command::new("git")
-                        .args(["diff", &format!("{}...{}", default_branch, branch)])
-                        .current_dir(working_dir)
-                        .output();
-
-                    let stat_text = stat
-                        .as_ref()
-                        .ok()
-                        .filter(|o| o.status.success())
-                        .map(|o| String::from_utf8_lossy(&o.stdout).to_string())
-                        .unwrap_or_default();
-
-                    let diff_text = diff
-                        .as_ref()
-                        .ok()
-                        .filter(|o| o.status.success())
-                        .map(|o| String::from_utf8_lossy(&o.stdout).to_string())
-                        .unwrap_or_default();
-
-                    if !diff_text.trim().is_empty() {
-                        sections.push(format!(
-                            "### Project: {}\n\nWorking directory: `{}`\n\n```\n{}\n```\n\nFull diff:\n```diff\n{}\n```",
-                            project_name, working_dir, stat_text.trim(), diff_text.trim()
-                        ));
-                    } else {
-                        sections.push(format!(
-                            "### Project: {}\n\nNo changes on this branch.",
-                            project_name
-                        ));
-                    }
-                }
-
-                if sections.iter().all(|s| s.contains("No changes")) {
-                    return None;
-                }
-
-                Some(format!(
-                    "## Workspace Change Set\n\n\
-                     This ticket spans multiple projects in a workspace. Below is the combined \
-                     diff across all projects. You MUST review changes in ALL projects, not just \
-                     the primary working directory.\n\n{}",
-                    sections.join("\n\n---\n\n")
-                ))
-            }
-            _ => None,
-        }
     }
 
     async fn run_code_review_loop_inner(
@@ -621,6 +633,7 @@ impl WorkflowOrchestrator {
         let timeout = timeout_override.unwrap_or(self.stage_timeout_secs);
         let retries = retries_override.unwrap_or(self.stage_max_retries);
         let custom_dir = self.custom_commands_dir();
+        let ticket_context = build_ticket_context(&self.ticket);
 
         for iteration in 1..=max_iterations {
             if self.is_cancelled() {
@@ -629,8 +642,10 @@ impl WorkflowOrchestrator {
 
             tracing::info!("Code review iteration {}/{}", iteration, display_max);
 
-            let base_prompt = generate_command_prompt("code-review", custom_dir.as_deref());
-            let review_prompt = self.append_workspace_context_to_prompt(&base_prompt);
+            let command_prompt = generate_command_prompt("code-review", custom_dir.as_deref());
+            let review_prompt = format!(
+                "{}{}", self.build_stage_context_prefix(), command_prompt
+            );
 
             let review_result = self
                 .run_stage_with_overrides("code-review", &review_prompt, model, timeout, retries)
@@ -683,8 +698,8 @@ impl WorkflowOrchestrator {
                     let base_fix_prompt =
                         generate_command_prompt("code-review-fix", custom_dir.as_deref());
                     let fix_prompt = format!(
-                        "{}\n\n## Issues to Address\n\n{}",
-                        base_fix_prompt, issues_section
+                        "{}{}\n\n## Issues to Address\n\n{}",
+                        ticket_context, base_fix_prompt, issues_section
                     );
                     self.run_stage_with_overrides("code-review-fix", &fix_prompt, model, timeout, retries)
                         .await?;
@@ -699,8 +714,8 @@ impl WorkflowOrchestrator {
                     let base_fix_prompt =
                         generate_command_prompt("code-review-fix", custom_dir.as_deref());
                     let fix_prompt = format!(
-                        "{}\n\n## Issues to Address\n\n{}",
-                        base_fix_prompt, text
+                        "{}{}\n\n## Issues to Address\n\n{}",
+                        ticket_context, base_fix_prompt, text
                     );
                     self.run_stage_with_overrides("code-review-fix", &fix_prompt, model, timeout, retries)
                         .await?;

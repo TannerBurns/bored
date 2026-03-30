@@ -70,6 +70,7 @@ pub async fn run_diagnostic_agent(
         workspace_file: None,
         workspace_paths: vec![],
         debug_mode: false,
+        allow_protected_branch: true,
     };
 
     let provider_for_extract = provider.clone();

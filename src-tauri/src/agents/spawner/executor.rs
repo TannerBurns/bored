@@ -12,6 +12,7 @@ use super::process::AgentProcess;
 use super::utils::is_transient_error;
 use crate::agents::provider::AgentProvider;
 use crate::agents::worktree::{get_git_user_email, get_git_user_name};
+use crate::commands::git_helpers::{get_current_branch, is_protected_branch};
 
 pub type OnSpawnCallback = Box<dyn FnMut(CancelHandle) + Send>;
 
@@ -50,6 +51,18 @@ pub fn run_agent_via_provider_with_cancel(
     if let Some(email) = get_git_user_email(&config.repo_path) {
         env_vars.push(("GIT_AUTHOR_EMAIL".to_string(), email.clone()));
         env_vars.push(("GIT_COMMITTER_EMAIL".to_string(), email));
+    }
+
+    if !config.allow_protected_branch {
+        if let Some(branch) = get_current_branch(&config.repo_path.to_string_lossy()) {
+            if is_protected_branch(&branch) {
+                return Err(SpawnError::ProtectedBranch(format!(
+                    "REFUSED: agent CWD '{}' is on protected branch '{}'. \
+                     Agents must run in a worktree, not the main checkout.",
+                    config.repo_path.display(), branch
+                )));
+            }
+        }
     }
 
     run_agent_inner(

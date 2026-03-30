@@ -126,6 +126,33 @@ impl Database {
         })
     }
 
+    /// Fetch stored git stats for a single ticket.
+    pub fn get_ticket_git_stats(&self, ticket_id: &str) -> Result<Option<TicketGitStats>, DbError> {
+        self.with_conn(|conn| {
+            let mut stmt = conn.prepare(
+                r#"SELECT id, ticket_id, commits, prs_created, lines_added, lines_removed, files_changed, collected_at
+                   FROM ticket_git_stats WHERE ticket_id = ?"#,
+            )?;
+            let result = stmt.query_row([ticket_id], |row| {
+                Ok(TicketGitStats {
+                    id: row.get(0)?,
+                    ticket_id: row.get(1)?,
+                    commits: row.get(2)?,
+                    prs_created: row.get(3)?,
+                    lines_added: row.get(4)?,
+                    lines_removed: row.get(5)?,
+                    files_changed: row.get(6)?,
+                    collected_at: row.get(7)?,
+                })
+            });
+            match result {
+                Ok(stats) => Ok(Some(stats)),
+                Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+                Err(e) => Err(DbError::Sqlite(e)),
+            }
+        })
+    }
+
     /// Increment the PR count for a ticket.
     pub fn increment_pr_count(&self, ticket_id: &str) -> Result<(), DbError> {
         self.with_conn(|conn| {

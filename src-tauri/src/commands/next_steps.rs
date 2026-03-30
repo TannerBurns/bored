@@ -146,7 +146,39 @@ pub fn get_ticket_working_dirs(
 
 /// Resolve the working directory for a specific project and branch.
 /// Returns the worktree path if one exists for this branch, otherwise the project path.
+///
+/// NOTE: For contexts where a missing worktree indicates a real problem (e.g. during
+/// active agent runs), use `resolve_working_dir_strict` instead to avoid silently
+/// operating on the main checkout.
 pub fn resolve_working_dir_for_project(project_path: &str, branch: &str) -> Result<String, String> {
+    match find_worktree_for_branch(project_path, branch)? {
+        Some(worktree_path) => Ok(worktree_path),
+        None => Ok(project_path.to_string()),
+    }
+}
+
+/// Strict variant that returns Err when no worktree exists for the branch.
+/// Use during active agent runs where falling back to the main checkout would
+/// cause work to be lost or applied to the wrong directory.
+pub fn resolve_working_dir_strict(project_path: &str, branch: &str) -> Result<String, String> {
+    match find_worktree_for_branch(project_path, branch)? {
+        Some(worktree_path) => Ok(worktree_path),
+        None => {
+            tracing::warn!(
+                "No worktree found for branch '{}' in project '{}' (strict mode — not falling back to main repo)",
+                branch, project_path
+            );
+            Err(format!(
+                "No worktree found for branch '{}' in project '{}'",
+                branch, project_path
+            ))
+        }
+    }
+}
+
+/// Scan git worktree list for a worktree matching the given branch.
+/// Returns `Ok(Some(path))` if found, `Ok(None)` if not, `Err` on git failures.
+fn find_worktree_for_branch(project_path: &str, branch: &str) -> Result<Option<String>, String> {
     let worktree_output = Command::new("git")
         .args(["worktree", "list", "--porcelain"])
         .current_dir(project_path)
@@ -164,7 +196,7 @@ pub fn resolve_working_dir_for_project(project_path: &str, branch: &str) -> Resu
             let wt_branch = branch_ref.strip_prefix("refs/heads/").unwrap_or(branch_ref);
             if wt_branch == branch {
                 if std::path::Path::new(&current_worktree).exists() {
-                    return Ok(current_worktree);
+                    return Ok(Some(current_worktree));
                 }
                 tracing::warn!(
                     "Worktree for branch {} listed at {} but directory missing, pruning stale reference",
@@ -180,7 +212,7 @@ pub fn resolve_working_dir_for_project(project_path: &str, branch: &str) -> Resu
         }
     }
 
-    Ok(project_path.to_string())
+    Ok(None)
 }
 
 /// Resolve working dir + branch for a specific project within a ticket, or fall
@@ -452,6 +484,14 @@ pub async fn get_branch_diff(
 }
 
 #[tauri::command]
+pub async fn get_ticket_git_stats(
+    ticket_id: String,
+    db: State<'_, Arc<Database>>,
+) -> Result<Option<crate::db::git_stats::TicketGitStats>, String> {
+    db.get_ticket_git_stats(&ticket_id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 pub async fn get_workspace_branch_status(
     ticket_id: String,
     db: State<'_, Arc<Database>>,
@@ -621,5 +661,151 @@ mod tests {
     fn resolve_working_dir_invalid_dir_returns_err() {
         let result = resolve_working_dir_for_project("/nonexistent/path/xyz", "main");
         assert!(result.is_err());
+    }
+
+    // --- find_worktree_for_branch ---
+
+    #[test]
+    fn find_worktree_no_match_returns_none() {
+        let (_dir, path) = init_temp_repo();
+        let result = find_worktree_for_branch(&path, "feat/nonexistent").unwrap();
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn find_worktree_with_match_returns_some() {
+        let (_dir, path) = init_temp_repo();
+
+        Command::new("git")
+            .args(["branch", "feat/find-test"])
+            .current_dir(&path)
+            .output()
+            .expect("create branch");
+
+        let wt_dir = tempfile::tempdir().expect("wt temp dir");
+        let wt_path = wt_dir.path().to_str().unwrap().to_string();
+        std::fs::remove_dir(&wt_path).ok();
+
+        Command::new("git")
+            .args(["worktree", "add", &wt_path, "feat/find-test"])
+            .current_dir(&path)
+            .output()
+            .expect("git worktree add");
+
+        let result = find_worktree_for_branch(&path, "feat/find-test").unwrap();
+        assert!(result.is_some(), "should find the worktree");
+
+        let canon = |p: &str| std::fs::canonicalize(p).unwrap_or_else(|_| std::path::PathBuf::from(p));
+        assert_eq!(canon(&result.unwrap()), canon(&wt_path));
+    }
+
+    #[test]
+    fn find_worktree_stale_dir_returns_none() {
+        let (_dir, path) = init_temp_repo();
+
+        Command::new("git")
+            .args(["branch", "feat/stale-find"])
+            .current_dir(&path)
+            .output()
+            .expect("create branch");
+
+        let wt_dir = tempfile::tempdir().expect("wt temp dir");
+        let wt_path = wt_dir.path().to_str().unwrap().to_string();
+        std::fs::remove_dir(&wt_path).ok();
+
+        Command::new("git")
+            .args(["worktree", "add", &wt_path, "feat/stale-find"])
+            .current_dir(&path)
+            .output()
+            .expect("git worktree add");
+
+        std::fs::remove_dir_all(&wt_path).expect("remove wt dir");
+
+        let result = find_worktree_for_branch(&path, "feat/stale-find").unwrap();
+        assert_eq!(result, None, "stale worktree should return None");
+    }
+
+    #[test]
+    fn find_worktree_invalid_path_returns_err() {
+        let result = find_worktree_for_branch("/nonexistent/path/xyz", "main");
+        assert!(result.is_err());
+    }
+
+    // --- resolve_working_dir_strict ---
+
+    #[test]
+    fn strict_resolve_returns_err_when_no_worktree() {
+        let (_dir, path) = init_temp_repo();
+        let result = resolve_working_dir_strict(&path, "feat/no-such-branch");
+        assert!(result.is_err(), "strict mode should return Err when no worktree found");
+        let err_msg = result.unwrap_err();
+        assert!(
+            err_msg.contains("No worktree found"),
+            "error message should indicate no worktree: {}",
+            err_msg
+        );
+    }
+
+    #[test]
+    fn strict_resolve_returns_ok_when_worktree_exists() {
+        let (_dir, path) = init_temp_repo();
+
+        Command::new("git")
+            .args(["branch", "feat/strict-test"])
+            .current_dir(&path)
+            .output()
+            .expect("create branch");
+
+        let wt_dir = tempfile::tempdir().expect("wt temp dir");
+        let wt_path = wt_dir.path().to_str().unwrap().to_string();
+        std::fs::remove_dir(&wt_path).ok();
+
+        Command::new("git")
+            .args(["worktree", "add", &wt_path, "feat/strict-test"])
+            .current_dir(&path)
+            .output()
+            .expect("git worktree add");
+
+        let result = resolve_working_dir_strict(&path, "feat/strict-test").unwrap();
+        let canon = |p: &str| std::fs::canonicalize(p).unwrap_or_else(|_| std::path::PathBuf::from(p));
+        assert_eq!(canon(&result), canon(&wt_path));
+    }
+
+    #[test]
+    fn strict_resolve_returns_err_on_stale_worktree() {
+        let (_dir, path) = init_temp_repo();
+
+        Command::new("git")
+            .args(["branch", "feat/strict-stale"])
+            .current_dir(&path)
+            .output()
+            .expect("create branch");
+
+        let wt_dir = tempfile::tempdir().expect("wt temp dir");
+        let wt_path = wt_dir.path().to_str().unwrap().to_string();
+        std::fs::remove_dir(&wt_path).ok();
+
+        Command::new("git")
+            .args(["worktree", "add", &wt_path, "feat/strict-stale"])
+            .current_dir(&path)
+            .output()
+            .expect("git worktree add");
+
+        std::fs::remove_dir_all(&wt_path).expect("remove wt dir");
+
+        let result = resolve_working_dir_strict(&path, "feat/strict-stale");
+        assert!(result.is_err(), "strict mode should return Err for stale worktree");
+    }
+
+    #[test]
+    fn strict_vs_lenient_behavior_diverges_on_missing_worktree() {
+        let (_dir, path) = init_temp_repo();
+        let branch = "feat/divergence-test";
+
+        let lenient = resolve_working_dir_for_project(&path, branch).unwrap();
+        assert_eq!(lenient, path, "lenient should fall back to project path");
+
+        let strict = resolve_working_dir_strict(&path, branch);
+        assert!(strict.is_err(), "strict should return Err for same scenario");
     }
 }
