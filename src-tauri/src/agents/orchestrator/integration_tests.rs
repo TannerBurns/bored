@@ -1871,7 +1871,7 @@ impl super::StageRunner for FailThenSucceedSessionRunner {
 }
 
 #[tokio::test]
-async fn session_id_cleared_on_retry_attempts() {
+async fn session_id_preserved_on_retry_attempts() {
     let db = create_test_db();
     let ticket = seed_ticket(&db);
     let run_id = seed_parent_run(&db, &ticket.id);
@@ -1903,8 +1903,9 @@ async fn session_id_cleared_on_retry_attempts() {
         "first attempt should receive the session_id"
     );
     assert_eq!(
-        captured[1], None,
-        "retry attempt should NOT receive session_id (cleared for safety)"
+        captured[1],
+        Some("my-session-id".to_string()),
+        "retry attempt should preserve session_id for conversational continuity"
     );
 }
 
@@ -2264,6 +2265,54 @@ fn restore_workflow_session_id_noop_when_no_saved_id() {
     orch.restore_workflow_session_id();
 
     assert!(orch.workflow_session_id.read().unwrap().is_none());
+}
+
+#[test]
+fn load_workflow_session_id_falls_back_to_resumed_from_run() {
+    let db = create_test_db();
+    let ticket = seed_ticket(&db);
+
+    let prev_run = db
+        .create_run(&CreateRun {
+            ticket_id: ticket.id.clone(),
+            agent_type: "stub".to_string(),
+            repo_path: "/tmp/test".to_string(),
+            parent_run_id: None,
+            stage: None,
+            resumed_from_run_id: None,
+        })
+        .unwrap();
+    db.merge_run_metadata(
+        &prev_run.id,
+        &serde_json::json!({ "workflow_session_id": "prev-sess-42" }),
+    )
+    .unwrap();
+
+    let new_run = db
+        .create_run(&CreateRun {
+            ticket_id: ticket.id.clone(),
+            agent_type: "stub".to_string(),
+            repo_path: "/tmp/test".to_string(),
+            parent_run_id: None,
+            stage: None,
+            resumed_from_run_id: Some(prev_run.id.clone()),
+        })
+        .unwrap();
+
+    let settings = make_workflow_settings(false, true);
+    let orch = WorkflowOrchestrator::new(make_config(
+        db.clone(),
+        ticket,
+        new_run.id.clone(),
+        settings,
+    ));
+
+    let loaded = orch.load_workflow_session_id();
+    assert_eq!(
+        loaded.as_deref(),
+        Some("prev-sess-42"),
+        "should fall back to the previous run's workflow_session_id"
+    );
 }
 
 #[tokio::test]
