@@ -255,11 +255,33 @@ impl WorkflowOrchestrator {
     }
 
     /// Load the workflow session ID from run metadata (for resume scenarios).
+    /// Checks the current parent run first, then falls back to the run it
+    /// resumed from (same pattern as `load_todos_from_metadata`).
     pub(super) fn load_workflow_session_id(&self) -> Option<String> {
         let run = self.db.get_run(&self.parent_run_id).ok()?;
-        let meta = run.metadata?;
-        meta.get("workflow_session_id")
+
+        if let Some(sid) = run
+            .metadata
+            .as_ref()
+            .and_then(|m| m.get("workflow_session_id"))
             .and_then(|v| v.as_str())
-            .map(|s| s.to_string())
+        {
+            return Some(sid.to_string());
+        }
+
+        run.resumed_from_run_id.as_ref().and_then(|prev_id| {
+            let prev = self.db.get_run(prev_id).ok()?;
+            let sid = prev
+                .metadata
+                .as_ref()?
+                .get("workflow_session_id")?
+                .as_str()?;
+            tracing::info!(
+                "Loaded workflow session id from previous run {}: {}",
+                prev_id,
+                sid
+            );
+            Some(sid.to_string())
+        })
     }
 }

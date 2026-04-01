@@ -135,8 +135,10 @@ impl WorkflowOrchestrator {
                 }
             }
 
-            // Don't pass session_id on retries -- the session may be in a bad state.
-            let attempt_session_id = if attempt == 1 { session_id } else { None };
+            // Always pass session_id on retries — most failures (network errors,
+            // timeouts) leave the session intact, and if the session is truly
+            // corrupt the CLI will start a fresh one on its own.
+            let attempt_session_id = session_id;
 
             match self
                 .run_stage_attempt(stage, prompt, attempt, max_attempts, model_override, attempt_session_id, timeout_override, dir_override)
@@ -408,11 +410,21 @@ impl WorkflowOrchestrator {
                         .map(|old| *old != sid)
                         .unwrap_or(true);
                     if is_new {
-                        tracing::info!(
-                            "Captured workflow session id from '{}' stage: {}",
-                            stage,
-                            sid,
-                        );
+                        if session_id.is_some() {
+                            tracing::warn!(
+                                "Session ID changed for stage '{}': sent {:?} but received {} \
+                                 — CLI may not have resumed the conversation",
+                                stage,
+                                session_id,
+                                sid,
+                            );
+                        } else {
+                            tracing::info!(
+                                "Captured workflow session id from '{}' stage: {}",
+                                stage,
+                                sid,
+                            );
+                        }
                         self.set_workflow_session_id(&sid);
                     }
                 } else if session_id.is_none() {
