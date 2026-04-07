@@ -48,6 +48,16 @@ export function ScopeSelector({
     return () => { cancelled = true; };
   }, [projectsOnly]);
 
+  useEffect(() => {
+    if (!allowEmpty && !value && !loading) {
+      const first = projects[0] || workspaces[0];
+      if (first) {
+        const type: ScopeType = 'path' in first ? 'project' : 'workspace';
+        onChange({ type, id: first.id });
+      }
+    }
+  }, [allowEmpty, value, loading, projects, workspaces, onChange]);
+
   const encodedValue = value ? `${value.type}:${value.id}` : '';
 
   const handleChange = (raw: string) => {

@@ -733,6 +733,8 @@ impl WorkflowOrchestrator {
                         .await?;
                 }
             }
+
+            self.commit_review_fixes(iteration);
         }
 
         tracing::warn!(
@@ -742,6 +744,27 @@ impl WorkflowOrchestrator {
         );
 
         Ok(())
+    }
+
+    fn commit_review_fixes(&self, iteration: usize) {
+        let repo = self.repo_path.to_string_lossy();
+        if !crate::commands::git_helpers::has_uncommitted_changes(&repo) {
+            tracing::debug!("No uncommitted changes after code-review-fix iteration {}", iteration);
+            return;
+        }
+
+        let message = format!(
+            "fix: address code review issues (iteration {})\n\nCo-authored-by: Bored <agent@bored.local>",
+            iteration
+        );
+        match crate::commands::git_helpers::commit_all_changes(&repo, &message) {
+            Ok(()) => tracing::info!(
+                "Committed code-review-fix changes for iteration {}", iteration
+            ),
+            Err(e) => tracing::warn!(
+                "Failed to commit code-review-fix changes for iteration {}: {}", iteration, e
+            ),
+        }
     }
 
     /// Emit a code-review iteration event to the frontend.

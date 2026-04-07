@@ -4,11 +4,16 @@
 //! - Previous sibling branches (chain branching within an epic)
 //! - Cross-epic dependency branches
 //! - Merge-dependencies tickets (which branch from main)
+//!
+//! Epic chain branching (sibling + cross-epic) applies only to tickets linked to a spec
+//! version (`spec_version_id`). Other epic children use the default base (e.g. main).
 
 use std::sync::Arc;
 
 use crate::db::{Database, Ticket};
 
+#[cfg(test)]
+use crate::db::models::{CreateProject, CreateSpec, UpdateTicket};
 #[cfg(test)]
 use crate::db::{CreateTicket, Priority, WorkflowType};
 
@@ -20,7 +25,8 @@ fn is_merge_dependencies_ticket(ticket: &Ticket) -> bool {
 }
 
 /// Determine the base branch for a ticket based on epic chain branching rules.
-/// Merge-dependencies tickets branch from main; other epic children chain from siblings.
+/// Merge-dependencies tickets branch from main. Other epic children chain from siblings
+/// or dependency epics only when `spec_version_id` is set; otherwise the default base is used.
 pub(crate) fn get_base_branch_for_ticket(
     db: &Arc<Database>,
     ticket: &Ticket,
@@ -31,6 +37,15 @@ pub(crate) fn get_base_branch_for_ticket(
     if is_merge_dependencies_ticket(ticket) {
         tracing::info!(
             "{} ticket {} is a merge-dependencies ticket, using default branch",
+            caller_id,
+            ticket.id
+        );
+        return None;
+    }
+
+    if ticket.spec_version_id.is_none() {
+        tracing::info!(
+            "{} ticket {} has no spec_version_id; skipping epic chain branching (default base)",
             caller_id,
             ticket.id
         );
@@ -242,5 +257,201 @@ mod tests {
 
         let result = get_base_branch_for_ticket(&db, &updated, "worker-1");
         assert!(result.is_none(), "Merge-dependencies tickets should use default branch");
+    }
+
+    #[test]
+    fn get_base_branch_skips_chain_when_not_spec_linked_despite_sibling_branch() {
+        let db = Arc::new(Database::open_in_memory().unwrap());
+        let board = db.create_board("Board").unwrap();
+        let columns = db.get_columns(&board.id).unwrap();
+        let backlog = columns.iter().find(|c| c.name == "Backlog").unwrap();
+
+        let epic = db
+            .create_ticket(&CreateTicket {
+                board_id: board.id.clone(),
+                column_id: backlog.id.clone(),
+                title: "Epic".to_string(),
+                description_md: "".to_string(),
+                priority: Priority::Medium,
+                labels: vec![],
+                project_id: None,
+                workspace_id: None,
+                workflow_type: WorkflowType::default(),
+                model: None,
+                branch_name: None,
+                is_epic: true,
+                epic_id: None,
+                depends_on_epic_id: None,
+                depends_on_epic_ids: vec![],
+                spec_version_id: None,
+            })
+            .unwrap();
+
+        let child1 = db
+            .create_ticket(&CreateTicket {
+                board_id: board.id.clone(),
+                column_id: backlog.id.clone(),
+                title: "Child 1".to_string(),
+                description_md: "".to_string(),
+                priority: Priority::Medium,
+                labels: vec![],
+                project_id: None,
+                workspace_id: None,
+                workflow_type: WorkflowType::default(),
+                model: None,
+                branch_name: None,
+                is_epic: false,
+                epic_id: Some(epic.id.clone()),
+                depends_on_epic_id: None,
+                depends_on_epic_ids: vec![],
+                spec_version_id: None,
+            })
+            .unwrap();
+
+        let child2 = db
+            .create_ticket(&CreateTicket {
+                board_id: board.id.clone(),
+                column_id: backlog.id.clone(),
+                title: "Child 2".to_string(),
+                description_md: "".to_string(),
+                priority: Priority::Medium,
+                labels: vec![],
+                project_id: None,
+                workspace_id: None,
+                workflow_type: WorkflowType::default(),
+                model: None,
+                branch_name: None,
+                is_epic: false,
+                epic_id: Some(epic.id.clone()),
+                depends_on_epic_id: None,
+                depends_on_epic_ids: vec![],
+                spec_version_id: None,
+            })
+            .unwrap();
+
+        db.update_ticket(
+            &child1.id,
+            &UpdateTicket {
+                branch_name: Some("feat/epic/prev".to_string()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+        let child2 = db.get_ticket(&child2.id).unwrap();
+        let result = get_base_branch_for_ticket(&db, &child2, "worker-1");
+        assert!(
+            result.is_none(),
+            "non-spec epic children should not chain from sibling"
+        );
+    }
+
+    #[test]
+    fn get_base_branch_uses_sibling_when_spec_linked() {
+        let db = Arc::new(Database::open_in_memory().unwrap());
+        let board = db.create_board("Board").unwrap();
+        let columns = db.get_columns(&board.id).unwrap();
+        let backlog = columns.iter().find(|c| c.name == "Backlog").unwrap();
+
+        let project_dir =
+            std::env::temp_dir().join(format!("bored-branching-test-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&project_dir).unwrap();
+        let project = db
+            .create_project(&CreateProject {
+                name: "P".to_string(),
+                path: project_dir.to_string_lossy().into_owned(),
+                requires_git: false,
+            })
+            .unwrap();
+
+        let spec = db
+            .create_spec(&CreateSpec {
+                board_id: board.id.clone(),
+                target_board_id: Some(board.id.clone()),
+                project_id: project.id.clone(),
+                name: "S".to_string(),
+                user_input: "u".to_string(),
+                model: None,
+                settings: serde_json::json!({}),
+            })
+            .unwrap();
+
+        let version = db.get_latest_spec_version(&spec.id).unwrap().unwrap();
+
+        let epic = db
+            .create_ticket(&CreateTicket {
+                board_id: board.id.clone(),
+                column_id: backlog.id.clone(),
+                title: "Epic".to_string(),
+                description_md: "".to_string(),
+                priority: Priority::Medium,
+                labels: vec![],
+                project_id: None,
+                workspace_id: None,
+                workflow_type: WorkflowType::default(),
+                model: None,
+                branch_name: None,
+                is_epic: true,
+                epic_id: None,
+                depends_on_epic_id: None,
+                depends_on_epic_ids: vec![],
+                spec_version_id: None,
+            })
+            .unwrap();
+
+        let child1 = db
+            .create_ticket(&CreateTicket {
+                board_id: board.id.clone(),
+                column_id: backlog.id.clone(),
+                title: "Child 1".to_string(),
+                description_md: "".to_string(),
+                priority: Priority::Medium,
+                labels: vec![],
+                project_id: None,
+                workspace_id: None,
+                workflow_type: WorkflowType::default(),
+                model: None,
+                branch_name: None,
+                is_epic: false,
+                epic_id: Some(epic.id.clone()),
+                depends_on_epic_id: None,
+                depends_on_epic_ids: vec![],
+                spec_version_id: None,
+            })
+            .unwrap();
+
+        let child2 = db
+            .create_ticket(&CreateTicket {
+                board_id: board.id.clone(),
+                column_id: backlog.id.clone(),
+                title: "Child 2".to_string(),
+                description_md: "".to_string(),
+                priority: Priority::Medium,
+                labels: vec![],
+                project_id: None,
+                workspace_id: None,
+                workflow_type: WorkflowType::default(),
+                model: None,
+                branch_name: None,
+                is_epic: false,
+                epic_id: Some(epic.id.clone()),
+                depends_on_epic_id: None,
+                depends_on_epic_ids: vec![],
+                spec_version_id: Some(version.id.clone()),
+            })
+            .unwrap();
+
+        db.update_ticket(
+            &child1.id,
+            &UpdateTicket {
+                branch_name: Some("feat/epic/prev".to_string()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+        let child2 = db.get_ticket(&child2.id).unwrap();
+        let result = get_base_branch_for_ticket(&db, &child2, "worker-1");
+        assert_eq!(result.as_deref(), Some("feat/epic/prev"));
     }
 }

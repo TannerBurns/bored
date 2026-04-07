@@ -8,7 +8,11 @@ mod title;
 
 pub use config::{ChatAgentConfig, ChatAgentError};
 pub use general::build_general_prompt;
-pub use ticket_builder::{parse_ticket_builder_response, TicketBuilderOutput, TicketBuilderTicket};
+pub use ticket_builder::{
+    parse_ticket_builder_response, TicketBuilderEpic, TicketBuilderOutput, TicketBuilderTask,
+    TicketBuilderTicket, TicketBuilderUpdate,
+};
+pub(crate) use ticket_builder::ticket_is_in_done_column;
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};

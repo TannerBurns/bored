@@ -2,6 +2,7 @@ import { useMemo } from 'react';
 import { cn } from '../../lib/utils';
 import { PRIORITY_BORDER_COLORS, PRIORITY_LABELS } from '../../lib/constants';
 import { ColumnSelect } from './ColumnSelect';
+import { taskProgressTitle } from './taskProgressTitle';
 import type { Column, Ticket, TaskCounts } from '../../types';
 
 interface ListViewProps {
@@ -170,11 +171,12 @@ export function ListView({ columns, tickets, projectMap, workspaceMap, taskCount
                     if (total === 0) return null;
                     const done = tc.completed;
                     const allDone = done === total;
+                    const progressTitle = taskProgressTitle(Boolean(ticket.isEpic), done, total);
                     return (
                       <span className={cn(
                         'flex items-center gap-1 text-xs font-medium',
                         allDone ? 'text-emerald-400' : 'text-board-text-muted'
-                      )} title={`${done} of ${total} tasks completed`}>
+                      )} title={progressTitle}>
                         <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="flex-shrink-0">
                           {allDone ? (
                             <>

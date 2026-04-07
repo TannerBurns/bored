@@ -12,8 +12,7 @@ use crate::agents::spawner::CancelHandle;
 use crate::agents::validation_agent::AppProcessManager;
 use crate::api::state::LiveEvent;
 use crate::db::models::{
-    Chat, ChatEvent, ChatMessage, ChatMessageRole, ChatMode, CreateChat, CreateTask, CreateTicket,
-    WorkflowType,
+    Chat, ChatEvent, ChatMessage, ChatMessageRole, ChatMode, CreateChat,
 };
 use crate::db::Database;
 
@@ -365,6 +364,7 @@ pub async fn create_tickets_from_chat(
     let chat = db.get_chat(&chat_id).map_err(|e| e.to_string())?;
     let board_id = chat
         .board_id
+        .clone()
         .ok_or_else(|| "No board_id on chat".to_string())?;
 
     let columns = db.get_columns(&board_id).map_err(|e| e.to_string())?;
@@ -376,69 +376,15 @@ pub async fn create_tickets_from_chat(
     let output: TicketBuilderOutput =
         serde_json::from_str(&tickets_json).map_err(|e| e.to_string())?;
 
-    let mut ticket_ids = Vec::new();
-
-    for ticket_data in &output.tickets {
-        let priority = ticket_data.resolved_priority();
-
-        let ticket = db
-            .create_ticket(&CreateTicket {
-                board_id: board_id.clone(),
-                column_id: backlog_column.id.clone(),
-                title: ticket_data.title.clone(),
-                description_md: ticket_data.description.clone(),
-                priority,
-                labels: vec![],
-                project_id: chat.project_id.clone(),
-                workspace_id: chat.workspace_id.clone(),
-                workflow_type: WorkflowType::default(),
-                model: None,
-                branch_name: None,
-                is_epic: false,
-                epic_id: None,
-                depends_on_epic_id: None,
-                depends_on_epic_ids: vec![],
-                spec_version_id: None,
-            })
-            .map_err(|e| e.to_string())?;
-
-        if let Some(ref tasks) = ticket_data.tasks {
-            for task in tasks {
-                db.create_task(&CreateTask {
-                    ticket_id: ticket.id.clone(),
-                    task_type: Default::default(),
-                    title: Some(task.title.clone()),
-                    content: task.content.clone(),
-                })
-                .map_err(|e| e.to_string())?;
-            }
-        }
-
-        let _ = event_tx.send(LiveEvent::TicketCreated {
-            ticket_id: ticket.id.clone(),
-            board_id: board_id.clone(),
-        });
-
-        ticket_ids.push(ticket.id);
-    }
-
-    if let Ok(sys_msg) = db.create_chat_message(
+    super::chat_ticket_builder::apply_ticket_builder_output(
+        &db,
+        &event_tx,
         &chat_id,
-        ChatMessageRole::System,
-        &format!("Created {} ticket(s)", ticket_ids.len()),
-        Some(&serde_json::json!({
-            "type": "tickets_created",
-            "ticketIds": &ticket_ids,
-        })),
-    ) {
-        let _ = event_tx.send(LiveEvent::ChatMessageAdded {
-            chat_id: chat_id.clone(),
-            message_id: sys_msg.id,
-            role: "system".to_string(),
-        });
-    }
-
-    Ok(ticket_ids)
+        &chat,
+        &board_id,
+        &backlog_column.id,
+        output,
+    )
 }
 
 fn default_model_for_mode(mode: &ChatMode) -> &'static str {
@@ -664,7 +610,7 @@ mod tests {
                 labels: vec![],
                 project_id: Some(project_b.id.clone()),
                 workspace_id: None,
-                workflow_type: WorkflowType::default(),
+                workflow_type: crate::db::models::WorkflowType::default(),
                 model: None,
                 branch_name: None,
                 is_epic: false,

@@ -2,6 +2,7 @@
 
 use crate::db::models::{CreateTask, Task, TaskStatus, TaskType, UpdateTask};
 use crate::db::{parse_datetime, Database, DbError};
+use rusqlite::OptionalExtension;
 
 impl Database {
     /// Create a new task for a ticket
@@ -450,6 +451,14 @@ impl Database {
         })
     }
 
+    /// Delete all tasks for a ticket
+    pub fn delete_tasks_for_ticket(&self, ticket_id: &str) -> Result<usize, DbError> {
+        self.with_conn(|conn| {
+            let affected = conn.execute("DELETE FROM tasks WHERE ticket_id = ?", [ticket_id])?;
+            Ok(affected)
+        })
+    }
+
     /// Delete a task
     pub fn delete_task(&self, task_id: &str) -> Result<(), DbError> {
         self.with_conn(|conn| {
@@ -474,17 +483,47 @@ impl Database {
         })
     }
 
-    /// Get count of tasks by status for a ticket
+    /// Task counts for a ticket: direct tasks from the tasks queue, except for epics — those use
+    /// child ticket counts (total children, "completed" = children in the Done column).
     pub fn get_task_counts(&self, ticket_id: &str) -> Result<TaskCounts, DbError> {
         self.with_conn(|conn| {
+            let is_epic: Option<i32> = conn
+                .query_row(
+                    "SELECT is_epic FROM tickets WHERE id = ?",
+                    [ticket_id],
+                    |row| row.get(0),
+                )
+                .optional()
+                .map_err(DbError::Sqlite)?;
+
+            if is_epic == Some(1) {
+                let (total_ct, done_ct): (i32, i32) = conn.query_row(
+                    r#"SELECT
+                         (SELECT COUNT(*) FROM tickets child
+                          WHERE child.epic_id = ?1
+                            AND child.board_id = (SELECT board_id FROM tickets WHERE id = ?1)),
+                         (SELECT COUNT(*) FROM tickets child
+                          JOIN columns col ON col.id = child.column_id
+                          WHERE child.epic_id = ?1
+                            AND child.board_id = (SELECT board_id FROM tickets WHERE id = ?1)
+                            AND LOWER(col.name) = 'done')"#,
+                    [ticket_id],
+                    |row| Ok((row.get(0)?, row.get(1)?)),
+                )?;
+                return Ok(TaskCounts {
+                    pending: total_ct.saturating_sub(done_ct),
+                    in_progress: 0,
+                    completed: done_ct,
+                    failed: 0,
+                });
+            }
+
             let mut stmt = conn.prepare(
                 r#"SELECT status, COUNT(*) FROM tasks 
                    WHERE ticket_id = ? GROUP BY status"#,
             )?;
-
             let mut counts = TaskCounts::default();
             let mut rows = stmt.query([ticket_id])?;
-
             while let Some(row) = rows.next()? {
                 let status: String = row.get(0)?;
                 let count: i32 = row.get(1)?;
@@ -530,6 +569,37 @@ impl Database {
                     "failed" => counts.failed = count,
                     _ => {}
                 }
+            }
+
+            // Epics: progress = child tickets (done = in Done column), not rolled-up agent tasks.
+            let mut stmt = conn.prepare(
+                r#"SELECT epic.id,
+                          COUNT(child.id) AS total_ct,
+                          COALESCE(SUM(CASE
+                            WHEN child.id IS NOT NULL AND LOWER(col.name) = 'done' THEN 1
+                            ELSE 0
+                          END), 0) AS done_ct
+                   FROM tickets epic
+                   LEFT JOIN tickets child
+                     ON child.epic_id = epic.id AND child.board_id = epic.board_id
+                   LEFT JOIN columns col ON col.id = child.column_id
+                   WHERE epic.board_id = ? AND epic.is_epic = 1
+                   GROUP BY epic.id"#,
+            )?;
+            let mut rows = stmt.query([board_id])?;
+            while let Some(row) = rows.next()? {
+                let epic_id: String = row.get(0)?;
+                let total_ct: i32 = row.get(1)?;
+                let done_ct: i32 = row.get(2)?;
+                map.insert(
+                    epic_id,
+                    TaskCounts {
+                        pending: total_ct.saturating_sub(done_ct),
+                        in_progress: 0,
+                        completed: done_ct,
+                        failed: 0,
+                    },
+                );
             }
 
             Ok(map)
@@ -934,6 +1004,122 @@ mod tests {
     }
 
     #[test]
+    fn get_board_task_counts_uses_child_ticket_columns_for_epics() {
+        let db = create_test_db();
+        let board = db.create_board("Test Board").unwrap();
+        let columns = db.get_columns(&board.id).unwrap();
+        let backlog = columns.iter().find(|c| c.name == "Backlog").unwrap();
+        let in_progress_col = columns.iter().find(|c| c.name == "In Progress").unwrap();
+        let done_col = columns.iter().find(|c| c.name == "Done").unwrap();
+
+        let epic = db
+            .create_ticket(&CreateTicket {
+                board_id: board.id.clone(),
+                column_id: backlog.id.clone(),
+                title: "Epic".to_string(),
+                description_md: "".to_string(),
+                priority: Priority::Medium,
+                labels: vec![],
+                project_id: None,
+                workspace_id: None,
+                workflow_type: WorkflowType::default(),
+                model: None,
+                branch_name: None,
+                is_epic: true,
+                epic_id: None,
+                depends_on_epic_id: None,
+                depends_on_epic_ids: vec![],
+                spec_version_id: None,
+            })
+            .unwrap();
+
+        let child_done = db
+            .create_ticket(&CreateTicket {
+                board_id: board.id.clone(),
+                column_id: done_col.id.clone(),
+                title: "Child done".to_string(),
+                description_md: "".to_string(),
+                priority: Priority::Medium,
+                labels: vec![],
+                project_id: None,
+                workspace_id: None,
+                workflow_type: WorkflowType::default(),
+                model: None,
+                branch_name: None,
+                is_epic: false,
+                epic_id: Some(epic.id.clone()),
+                depends_on_epic_id: None,
+                depends_on_epic_ids: vec![],
+                spec_version_id: None,
+            })
+            .unwrap();
+
+        db.create_ticket(&CreateTicket {
+            board_id: board.id.clone(),
+            column_id: in_progress_col.id.clone(),
+            title: "Child wip".to_string(),
+            description_md: "".to_string(),
+            priority: Priority::Medium,
+            labels: vec![],
+            project_id: None,
+            workspace_id: None,
+            workflow_type: WorkflowType::default(),
+            model: None,
+            branch_name: None,
+            is_epic: false,
+            epic_id: Some(epic.id.clone()),
+            depends_on_epic_id: None,
+            depends_on_epic_ids: vec![],
+            spec_version_id: None,
+        })
+        .unwrap();
+
+        db.create_ticket(&CreateTicket {
+            board_id: board.id.clone(),
+            column_id: backlog.id.clone(),
+            title: "Child backlog".to_string(),
+            description_md: "".to_string(),
+            priority: Priority::Medium,
+            labels: vec![],
+            project_id: None,
+            workspace_id: None,
+            workflow_type: WorkflowType::default(),
+            model: None,
+            branch_name: None,
+            is_epic: false,
+            epic_id: Some(epic.id.clone()),
+            depends_on_epic_id: None,
+            depends_on_epic_ids: vec![],
+            spec_version_id: None,
+        })
+        .unwrap();
+
+        db.create_task(&CreateTask {
+            ticket_id: child_done.id.clone(),
+            task_type: TaskType::Custom,
+            title: Some("Agent task".to_string()),
+            content: None,
+        })
+        .unwrap();
+
+        let map = db.get_board_task_counts(&board.id).unwrap();
+
+        let epic_counts = map.get(&epic.id).expect("epic child-ticket progress");
+        assert_eq!(epic_counts.completed, 1);
+        assert_eq!(epic_counts.pending, 2);
+        assert_eq!(epic_counts.in_progress, 0);
+        assert_eq!(epic_counts.failed, 0);
+
+        let child_counts = map.get(&child_done.id).expect("child still has queue task counts");
+        assert_eq!(child_counts.pending, 1);
+        assert_eq!(child_counts.completed, 0);
+
+        let epic_via_get_task = db.get_task_counts(&epic.id).unwrap();
+        assert_eq!(epic_via_get_task.completed, 1);
+        assert_eq!(epic_via_get_task.pending, 2);
+    }
+
+    #[test]
     fn delete_task() {
         let db = create_test_db();
         let ticket_id = setup_ticket(&db);
@@ -951,6 +1137,32 @@ mod tests {
 
         let result = db.get_task(&task.id);
         assert!(matches!(result, Err(DbError::NotFound(_))));
+    }
+
+    #[test]
+    fn delete_tasks_for_ticket_removes_all_rows() {
+        let db = create_test_db();
+        let ticket_id = setup_ticket(&db);
+
+        db.create_task(&CreateTask {
+            ticket_id: ticket_id.clone(),
+            task_type: TaskType::Custom,
+            title: Some("a".into()),
+            content: None,
+        })
+        .unwrap();
+        db.create_task(&CreateTask {
+            ticket_id: ticket_id.clone(),
+            task_type: TaskType::Custom,
+            title: Some("b".into()),
+            content: None,
+        })
+        .unwrap();
+
+        let n = db.delete_tasks_for_ticket(&ticket_id).unwrap();
+        assert_eq!(n, 2);
+        let tasks = db.get_tasks_for_ticket(&ticket_id).unwrap();
+        assert!(tasks.is_empty());
     }
 
     #[test]

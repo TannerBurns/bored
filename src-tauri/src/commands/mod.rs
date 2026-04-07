@@ -4,6 +4,7 @@ pub mod agent_settings;
 mod agent_settings_tests;
 pub mod boards;
 pub mod chat;
+mod chat_ticket_builder;
 pub mod dashboard;
 mod diff_parser;
 pub mod git_helpers;
