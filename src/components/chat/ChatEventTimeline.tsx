@@ -47,34 +47,35 @@ export function ChatEventTimeline({ events, agentType }: ChatEventTimelineProps)
   return (
     <>
       <div className="rounded-lg border border-board-border/30 bg-board-card/20 overflow-hidden mb-2">
-        <button
-          onClick={() => setIsExpanded(!isExpanded)}
-          className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-board-text-muted hover:bg-board-card-hover transition-colors"
-        >
-          <span className="text-[10px]">{isExpanded ? '▼' : '▶'}</span>
-          <span>{entries.length} events</span>
-          {toolUseCount > 0 && (
-            <>
-              <span className="opacity-40">·</span>
-              <span>{toolUseCount} tool calls</span>
-            </>
-          )}
-          {durationStr && (
-            <>
-              <span className="opacity-40">·</span>
-              <span>{durationStr}</span>
-            </>
-          )}
+        <div className="flex w-full items-center gap-1 px-3 py-1.5 text-xs text-board-text-muted hover:bg-board-card-hover transition-colors">
           <button
-            onClick={(e) => {
-              e.stopPropagation();
-              setIsFullscreen(true);
-            }}
-            className="ml-auto text-[10px] text-board-accent hover:text-board-accent/80 transition-colors"
+            type="button"
+            onClick={() => setIsExpanded(!isExpanded)}
+            className="flex min-w-0 flex-1 items-center gap-2 text-left"
+          >
+            <span className="text-[10px]">{isExpanded ? '▼' : '▶'}</span>
+            <span>{entries.length} events</span>
+            {toolUseCount > 0 && (
+              <>
+                <span className="opacity-40">·</span>
+                <span>{toolUseCount} tool calls</span>
+              </>
+            )}
+            {durationStr && (
+              <>
+                <span className="opacity-40">·</span>
+                <span>{durationStr}</span>
+              </>
+            )}
+          </button>
+          <button
+            type="button"
+            onClick={() => setIsFullscreen(true)}
+            className="flex-shrink-0 text-[10px] text-board-accent hover:text-board-accent/80 transition-colors"
           >
             Open Full Timeline
           </button>
-        </button>
+        </div>
 
         {isExpanded && (
           <div className="border-t border-board-border/20 px-2 py-2 max-h-64 overflow-y-auto">

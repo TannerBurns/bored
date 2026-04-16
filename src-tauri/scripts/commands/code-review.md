@@ -21,7 +21,11 @@ git diff origin/main...HEAD
 
 If `origin/main` doesn't exist, try `origin/master`.
 
+Include uncommitted changes when reviewing: `git diff --stat` and `git diff --staged --stat`.
+
 For workspace tickets with multiple projects, `cd` into each project directory listed in the **Branch Information** section and run the diff commands in each one.
+
+On later iterations, confirm an issue still exists (committed and uncommitted) before reporting it again.
 
 ### Step 2 — Analyze for issues
 Look for:

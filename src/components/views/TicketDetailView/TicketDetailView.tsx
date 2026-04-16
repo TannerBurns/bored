@@ -126,11 +126,14 @@ export function TicketDetailView({
     return error;
   }, [onRunWithAgent, agentEvents.setAgentError]);
 
-  // Auto-switch to Agent tab when a run starts
+  const prevLockedByRunIdRef = useRef(ticket.lockedByRunId);
   useEffect(() => {
-    if (ticket.lockedByRunId) {
+    const wasLocked = !!prevLockedByRunIdRef.current;
+    const isLocked = !!ticket.lockedByRunId;
+    if (!wasLocked && isLocked) {
       setActiveTab('agent');
     }
+    prevLockedByRunIdRef.current = ticket.lockedByRunId;
   }, [ticket.lockedByRunId]);
 
   // Show Activity tab badge only when ticket is blocked and needs user input

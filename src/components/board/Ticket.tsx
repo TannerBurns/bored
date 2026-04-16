@@ -4,6 +4,7 @@ import { CSS } from '@dnd-kit/utilities';
 import { cn } from '../../lib/utils';
 import { PRIORITY_BORDER_COLORS, PRIORITY_RING_COLORS, PRIORITY_RING_HOVER_COLORS } from '../../lib/constants';
 import type { Ticket as TicketType, TaskCounts } from '../../types';
+import { taskProgressTitle } from './taskProgressTitle';
 
 interface TicketProps {
   ticket: TicketType;
@@ -175,11 +176,12 @@ export const Ticket = memo(function Ticket({ ticket, projectName, columnName, ta
             const total = taskCounts.pending + taskCounts.inProgress + taskCounts.completed + taskCounts.failed;
             const done = taskCounts.completed;
             const allDone = done === total;
+            const progressTitle = taskProgressTitle(Boolean(ticket.isEpic), done, total);
             return (
               <span className={cn(
                 'flex items-center gap-1 font-medium',
                 allDone ? 'text-emerald-400' : 'text-board-text-muted'
-              )} title={`${done} of ${total} tasks completed`}>
+              )} title={progressTitle}>
                 <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="flex-shrink-0">
                   {allDone ? (
                     <>
