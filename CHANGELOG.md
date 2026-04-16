@@ -2,6 +2,56 @@
 
 All notable changes to Bored are documented in this file.
 
+## [0.1.0-beta.66] - 2026-04-16
+
+Ticket builder epics, modular apply pipeline, session continuity across retries, and UI polish. The ticket-builder agent can now propose and apply full epics (groups of related tickets) and ticket updates from chat, with JSON extraction hardened for fenced and bare payloads. A new `chat_ticket_builder` command module encapsulates the apply pipeline on the backend, routing structured proposals through `apply_output` and `apply_updates` with dedicated DB mutations. Session continuity is strengthened — `session_id` is now preserved across stage retries and pause/resume flows instead of being cleared, so network errors and timeouts no longer corrupt ongoing conversations. Board and list views gain accurate progress wording that distinguishes epic-level from ticket-level task counts.
+
+### New Features
+
+- Epic support in ticket builder — the ticket-builder agent can now propose and apply full epics (groups of related tickets) from chat, with JSON extraction hardened for both fenced code blocks and bare payloads
+- Ticket update proposals — chat-driven ticket builder can propose updates to existing tickets, not just create new ones, with structured apply logic on the backend
+- `chat_ticket_builder` command module — new Rust module encapsulates the apply pipeline with `apply_output` and `apply_updates` entry points, routing chat apply logic through dedicated DB mutations instead of inline command handling
+- Ticket-builder event surfacing in chat timeline — ticket-builder agent events now appear inline in the chat log timeline, giving users real-time visibility into proposal and apply progress
+
+### Improvements
+
+- `taskProgressTitle` helper for list/kanban views — board rows and list items now show accurate progress wording in tooltips that distinguishes epic-level from ticket-level task counts
+- Worker branching expanded for epic-scoped ticket builder work — DB task queries and branching logic updated to support epic-scoped flows
+- `TicketBuilderMessage` rendering and parsing hardened with additional edge-case coverage
+- Code-review prompt step text tightened and redundant agent/orchestrator commentary trimmed
+
+### Bug Fixes
+
+- Fixed session_id being cleared on stage retries — network errors and timeouts no longer corrupt the session; the CLI starts a fresh session on its own if the old one is unrecoverable
+- Fixed session_id lost across pause/resume — `load_workflow_session_id` now falls back to `resumed_from_run_id` when a new run is created, maintaining conversation continuity
+- Added diagnostic warning when CLI returns a different session_id than what was sent via `--resume`, making it obvious in logs whether the conversation was actually continued or silently restarted
+
+### Testing
+
+- cargo clippy --all-targets -- -D warnings: 0 warnings
+- cargo test: all passed, 0 failed
+- pnpm exec tsc --noEmit: 0 errors
+- pnpm test: all passed
+- New Vitest coverage for `TicketBuilderMessage` rendering and parsing edge cases
+
+### Upgrading from Previous Versions
+
+If you are upgrading from a version older than beta.65, here is a summary of the major features introduced in recent releases:
+
+**beta.65 — Workspace Worktree Robustness, Ticket-Aware Agent Prompts & Fast Startup**
+All workspace projects now share a single branch name and receive full worktree isolation — secondary project work can no longer be silently lost due to mismatched branch names, stale in-memory snapshots, or fallback to the main checkout path. Every agent command stage now receives the ticket's title, description, priority, labels, branch name, base branch, and per-project worktree paths so the agent understands what it is working on. App startup time drops from 5+ seconds to ~100-200ms by deferring Cursor model discovery, orphaned task cleanup, API server, and tray setup to background tasks. Agent workflow errors now surface immediately in the UI via error banners without requiring a page refresh.
+
+**beta.64 — Session-ID Extraction Fix & Full Shell Environment Inheritance**
+The `extract_session_id_from_stream_json` parser now requires `subtype == "init"` so that `hook_started` and `hook_response` system events are skipped, preventing the wrong session_id from being captured during `--resume` flows. The macOS/Linux environment bootstrap switches from `fix_path_env::fix()` (PATH only) to `fix_all_vars()`, ensuring API keys, custom variables, and other shell-profile configuration are available when the app is launched from Finder, Dock, or Spotlight.
+
+**beta.63 — Workspace Multi-Project Awareness**
+Workspace tickets now correctly push, create pull requests, collect diffs, and aggregate git stats across all projects instead of only the primary project. Agent prompts include a combined workspace diff so the code review agent sees changes in every repo. Secondary workspace worktrees are auto-committed after each orchestrator stage. The git helper layer has been extracted into a dedicated `git_helpers.rs` module, reducing `next_steps.rs` from 1,299 to 629 lines.
+
+**beta.62 — Debug Mode, Auto Code Review & Detour-Sync**
+A new per-provider Debug Mode toggle emits `bored_system` JSON log lines for every CLI subprocess invocation, showing the full command string in the log timeline as system entries with sensitive environment variables automatically filtered. A new "Run on Ticket Complete" setting triggers the code review loop automatically after the last task of a ticket finishes, using a dedicated `CodeReview` task type. The detour-sync stage merges agent work back to the target branch. Chat UX gains optimistic user message insertion and stale-chat guards.
+
+---
+
 ## [0.1.0-beta.65] - 2026-03-29
 
 Workspace worktree robustness, ticket-aware agent prompts, fast startup, and visible workflow errors. All workspace projects now share a single branch name and receive full worktree isolation — secondary project work can no longer be silently lost due to mismatched branch names, stale in-memory snapshots, or fallback to the main checkout path. Every agent command stage (code review, commit, cleanup, unit-tests, custom, etc.) now receives the ticket's title, description, priority, labels, branch name, base branch, and per-project worktree paths so the agent understands what it is working on. App startup time drops from 5+ seconds to ~100-200ms by deferring Cursor model discovery, orphaned task cleanup, API server, and tray setup to background tasks. Agent workflow errors (worktree setup failures, mid-execution errors) now surface immediately in the UI via error banners without requiring a page refresh.
